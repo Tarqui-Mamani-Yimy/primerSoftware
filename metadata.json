@@ -1,0 +1,6 @@
+{
+  "name": "AI UML Architect",
+  "description": "Next-generation UML architecture modeling studio and Spring Boot & PostgreSQL backend code generator with real-time AST synchronization.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

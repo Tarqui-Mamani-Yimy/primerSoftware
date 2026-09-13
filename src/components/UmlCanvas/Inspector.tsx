@@ -1,0 +1,337 @@
+import React, { useState } from 'react';
+import { UMLClassNode, UMLAttribute, UMLMethod, Stereotype } from '../../types';
+
+interface InspectorProps {
+  selectedClass: UMLClassNode;
+  onUpdateClass: (updated: UMLClassNode) => void;
+  onClose: () => void;
+  onGenerateCode: () => void;
+}
+
+export const Inspector: React.FC<InspectorProps> = ({
+  selectedClass,
+  onUpdateClass,
+  onClose,
+  onGenerateCode
+}) => {
+  const [saveFeedback, setSaveFeedback] = useState(false);
+  const [showNewAttrModal, setShowNewAttrModal] = useState(false);
+  const [newAttrName, setNewAttrName] = useState('');
+  const [newAttrType, setNewAttrType] = useState('String');
+  const [newAttrVisibility, setNewAttrVisibility] = useState<'+' | '-' | '#'>('+');
+
+  const handleUpdateField = <K extends keyof UMLClassNode>(field: K, value: UMLClassNode[K]) => {
+    onUpdateClass({
+      ...selectedClass,
+      [field]: value
+    });
+  };
+
+  const handleAddAttribute = () => {
+    if (!newAttrName.trim()) return;
+    const newAttr: UMLAttribute = {
+      id: `attr_${Date.now()}`,
+      name: newAttrName.trim(),
+      type: newAttrType,
+      visibility: newAttrVisibility,
+      annotations: newAttrType === 'UUID' ? ['@Id'] : ['@NotNull']
+    };
+    onUpdateClass({
+      ...selectedClass,
+      attributes: [...selectedClass.attributes, newAttr]
+    });
+    setNewAttrName('');
+    setShowNewAttrModal(false);
+  };
+
+  const handleDeleteAttribute = (attrId: string) => {
+    onUpdateClass({
+      ...selectedClass,
+      attributes: selectedClass.attributes.filter(a => a.id !== attrId)
+    });
+  };
+
+  const handleAddMethod = () => {
+    const methodName = prompt('Enter method signature (e.g. recalculateDiscount(rate))', 'calculateDiscount()');
+    if (!methodName) return;
+    const newMethod: UMLMethod = {
+      id: `meth_${Date.now()}`,
+      name: methodName,
+      returnType: 'BigDecimal',
+      visibility: '+'
+    };
+    onUpdateClass({
+      ...selectedClass,
+      methods: [...selectedClass.methods, newMethod]
+    });
+  };
+
+  const handleDeleteMethod = (methodId: string) => {
+    onUpdateClass({
+      ...selectedClass,
+      methods: selectedClass.methods.filter(m => m.id !== methodId)
+    });
+  };
+
+  const handleSave = () => {
+    setSaveFeedback(true);
+    setTimeout(() => setSaveFeedback(false), 1800);
+  };
+
+  return (
+    <div className="w-80 flex-shrink-0 bg-[#181c24] flex flex-col z-20 shadow-xl border-l border-[#3c4a42] overflow-hidden">
+      {/* Inspector Header */}
+      <div className="p-3 bg-[#1c2028] border-b border-[#3c4a42] flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-[#4edea3] text-sm">tune</span>
+          <span className="font-heading text-sm uppercase tracking-wider text-[#dfe2ee] font-bold">Inspector</span>
+        </div>
+        <div className="flex items-center gap-2 font-mono">
+          <span className="text-[#4edea3] text-[10px] font-bold">{selectedClass.name}.class</span>
+          <button 
+            onClick={onClose}
+            className="text-[#bbcabf] hover:text-[#dfe2ee] transition-colors"
+          >
+            <span className="material-symbols-outlined text-sm">close</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Properties Form Body */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-4 font-mono">
+        {/* Class Metadata */}
+        <div className="space-y-2 bg-[#1c2028] p-2.5 border border-[#3c4a42]">
+          <div className="flex items-center justify-between pb-1 border-b border-[#3c4a42]">
+            <span className="text-[10px] uppercase font-bold text-[#bbcabf]">Class Metadata</span>
+            <span className="material-symbols-outlined text-xs text-[#4edea3]">data_object</span>
+          </div>
+
+          <div>
+            <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Class Identifier</label>
+            <input
+              className="w-full bg-[#0a0e16] px-2 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
+              type="text"
+              value={selectedClass.name}
+              onChange={(e) => handleUpdateField('name', e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Target Package</label>
+            <input
+              className="w-full bg-[#0a0e16] px-2 py-1 text-[#bbcabf] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
+              type="text"
+              value={selectedClass.package}
+              onChange={(e) => handleUpdateField('package', e.target.value)}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Stereotype</label>
+              <select
+                className="w-full bg-[#0a0e16] px-2 py-1 text-[#4edea3] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
+                value={selectedClass.stereotype}
+                onChange={(e) => handleUpdateField('stereotype', e.target.value as Stereotype)}
+              >
+                <option value="«Entity»">«Entity»</option>
+                <option value="«Entity, AggregateRoot»">«Entity, AggregateRoot»</option>
+                <option value="«Entity, Part»">«Entity, Part»</option>
+                <option value="«Abstract»">«Abstract»</option>
+                <option value="«Interface»">«Interface»</option>
+                <option value="«ValueObject»">«ValueObject»</option>
+                <option value="«Repository»">«Repository»</option>
+                <option value="«Service»">«Service»</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Table Binding</label>
+              <input
+                className="w-full bg-[#0a0e16] px-2 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
+                type="text"
+                value={selectedClass.tableBinding}
+                onChange={(e) => handleUpdateField('tableBinding', e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Field / Attribute List Editor */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase text-[#dfe2ee] tracking-wider font-bold">
+              Attributes ({selectedClass.attributes.length})
+            </span>
+            <button
+              onClick={() => setShowNewAttrModal(true)}
+              className="flex items-center gap-1 text-xs text-[#4edea3] hover:underline"
+            >
+              <span className="material-symbols-outlined text-xs">add</span>
+              <span>New Field</span>
+            </button>
+          </div>
+
+          {showNewAttrModal && (
+            <div className="p-2.5 bg-[#262a33] border border-[#4edea3] space-y-2">
+              <div className="text-[10px] text-[#4edea3] font-bold uppercase">Add Field to {selectedClass.name}</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <input
+                  type="text"
+                  placeholder="name"
+                  value={newAttrName}
+                  onChange={(e) => setNewAttrName(e.target.value)}
+                  className="col-span-2 bg-[#0a0e16] px-1.5 py-1 text-xs border border-[#3c4a42] focus:outline-none text-[#dfe2ee]"
+                />
+                <select
+                  value={newAttrType}
+                  onChange={(e) => setNewAttrType(e.target.value)}
+                  className="bg-[#0a0e16] px-1 py-1 text-xs border border-[#3c4a42] text-[#4cd7f6]"
+                >
+                  <option value="String">String</option>
+                  <option value="BigDecimal">BigDecimal</option>
+                  <option value="Integer">Integer</option>
+                  <option value="UUID">UUID</option>
+                  <option value="Instant">Instant</option>
+                  <option value="Boolean">Boolean</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-1 text-[10px]">
+                  <span className="text-[#bbcabf]">Vis:</span>
+                  {(['+', '-', '#'] as const).map(vis => (
+                    <button
+                      key={vis}
+                      onClick={() => setNewAttrVisibility(vis)}
+                      className={`px-1.5 py-0.5 border text-xs ${newAttrVisibility === vis ? 'bg-[#4edea3] text-black font-bold' : 'bg-[#1c2028] text-white border-[#3c4a42]'}`}
+                    >
+                      {vis}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setShowNewAttrModal(false)}
+                    className="px-2 py-0.5 text-xs text-[#bbcabf] hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddAttribute}
+                    className="px-2 py-0.5 bg-[#4edea3] text-black text-xs font-bold"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            {selectedClass.attributes.map((attr) => (
+              <div key={attr.id} className="p-2 bg-[#1c2028] border border-[#3c4a42] space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[#4cd7f6] font-bold text-xs">{attr.visibility}</span>
+                    <span className="text-[#dfe2ee] font-bold text-xs">{attr.name}</span>
+                  </div>
+                  <span className="text-[#4cd7f6] text-[11px]">{attr.type}</span>
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-[#bbcabf] pt-1 border-t border-[#3c4a42]">
+                  <span className="text-[#4edea3]">
+                    {attr.annotations && attr.annotations.length > 0 ? attr.annotations.join(' ') : 'none'}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteAttribute(attr.id)}
+                    className="text-[#bbcabf] hover:text-[#ffb4ab] transition-colors"
+                    title="Delete attribute"
+                  >
+                    <span className="material-symbols-outlined text-xs">delete</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Operations / Method Manager */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase text-[#dfe2ee] tracking-wider font-bold">
+              Operations ({selectedClass.methods.length})
+            </span>
+            <button
+              onClick={handleAddMethod}
+              className="flex items-center gap-1 text-xs text-[#4edea3] hover:underline"
+            >
+              <span className="material-symbols-outlined text-xs">add</span>
+              <span>New Method</span>
+            </button>
+          </div>
+
+          <div className="space-y-1 text-xs">
+            {selectedClass.methods.map((method) => (
+              <div key={method.id} className="flex items-center justify-between p-2 bg-[#1c2028] border border-[#3c4a42]">
+                <div className="truncate mr-2">
+                  <span className="text-[#4edea3] font-bold">{method.visibility} </span>
+                  <span className="text-[#dfe2ee] truncate">{method.name}</span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span className="text-[#4cd7f6] text-[11px]">{method.returnType}</span>
+                  <button
+                    onClick={() => handleDeleteMethod(method.id)}
+                    className="text-[#86948a] hover:text-[#ffb4ab]"
+                    title="Delete method"
+                  >
+                    <span className="material-symbols-outlined text-xs">close</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Target Code Preview Card */}
+        <div className="p-2.5 bg-[#31353e] space-y-2 border border-[#3c4a42]">
+          <span className="text-[9px] uppercase text-[#bbcabf] block font-bold">Target Code Preview</span>
+          <div className="bg-[#0a0e16] p-2 text-[10px] text-[#dfe2ee] space-y-0.5 border border-[#3c4a42]">
+            <span className="text-[#4edea3]">@Entity</span><br />
+            <span className="text-[#4edea3]">@Table</span>(name = <span className="text-[#4cd7f6]">"{selectedClass.tableBinding}"</span>)<br />
+            <span className="text-[#dfe2ee] font-bold">public class {selectedClass.name} &#123;</span><br />
+            &nbsp;&nbsp;<span className="text-[#d0bcff]">@Id</span> UUID id;<br />
+            &nbsp;&nbsp;<span className="text-[#86948a]">// +{selectedClass.attributes.length - 1} attributes &amp; {selectedClass.methods.length} methods</span><br />
+            &#125;
+          </div>
+
+          <button
+            onClick={onGenerateCode}
+            className="w-full py-1.5 bg-[#1c2028] hover:bg-[#262a33] text-[#4edea3] border border-[#4edea3] text-xs uppercase text-center font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+          >
+            <span className="material-symbols-outlined text-xs">bolt</span>
+            <span>Generate Spring DDL + Repository</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Inspector Footer */}
+      <div className="p-2.5 bg-[#1c2028] border-t border-[#3c4a42] flex items-center justify-between font-mono">
+        <span className="text-xs text-[#bbcabf]">
+          Schema sync: <strong className="text-[#4edea3]">Auto</strong>
+        </span>
+        <button
+          onClick={handleSave}
+          className="px-3 py-1 bg-[#4edea3] text-black text-xs uppercase font-bold hover:brightness-110 active:scale-95 transition-all flex items-center gap-1"
+        >
+          {saveFeedback ? (
+            <>
+              <span className="material-symbols-outlined text-xs">done</span>
+              <span>Saved!</span>
+            </>
+          ) : (
+            <span>Save Entity</span>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
