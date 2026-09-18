@@ -25,4 +25,6 @@ The UI already supports creating, linking, naming, and assigning cardinalities t
 - REL-1 completed: relationship inspector stages and saves edits to type, source, target, label, and multiplicities; CanvasView excludes the edited relationship while applying shared validation. Frontend runner unavailable (`node`, `npm`, and `pnpm` are absent).
 - REL-2 completed: server-side semantic validation runs before persistence and `IllegalArgumentException` is returned as HTTP 400.
 - REL-3 completed: focused validator unit tests pass. `backend/./mvnw -q test` still fails only in the pre-existing integration test setup because PostgreSQL socket access is not permitted.
+- Work-unit commit: `f574d1b feat: reconfigure UML relationships`.
+- RDD assessment: unavailable. `gentle-ai review assess` cannot create its temporary index below `.git` because the filesystem is read-only; user explicitly declined reporting the gentle-ai defect.
 - Next step: run frontend lint/build and the full backend integration suite in an environment with Node and PostgreSQL.
