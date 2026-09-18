@@ -271,9 +271,23 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
     {selectedRelationship && !selected ? (
       <RelationshipInspector
         selectedRelationship={selectedRelationship}
-        sourceName={props.classes.find((item) => item.id === selectedRelationship.sourceId)?.name ?? selectedRelationship.sourceId}
-        targetName={props.classes.find((item) => item.id === selectedRelationship.targetId)?.name ?? selectedRelationship.targetId}
-        onUpdateRelationship={(updated) => { props.onUpdateRelationship(updated); props.onPersistChange(); }}
+        classes={props.classes}
+        onUpdateRelationship={(updated) => {
+          const source = props.classes.find((umlClass) => umlClass.id === updated.sourceId);
+          const target = props.classes.find((umlClass) => umlClass.id === updated.targetId);
+          const validation = validateRelationshipCreation(
+            updated.sourceId,
+            updated.targetId,
+            updated.type,
+            props.relationships.filter((relationship) => relationship.id !== updated.id),
+            source,
+            target,
+          );
+          if (!validation.ok) return validation.reason;
+          props.onUpdateRelationship(updated);
+          props.onPersistChange();
+          return undefined;
+        }}
         onDeleteRelationship={props.onDeleteRelationship}
         onClose={() => props.onSelectRelationship('')}
       />
