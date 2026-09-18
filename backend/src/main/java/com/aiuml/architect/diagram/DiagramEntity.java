@@ -1,0 +1,4 @@
+package com.aiuml.architect.diagram;
+import com.fasterxml.jackson.databind.JsonNode; import jakarta.persistence.*; import org.hibernate.annotations.JdbcTypeCode; import org.hibernate.type.SqlTypes; import java.time.Instant; import java.util.UUID;
+@Entity @Table(name="diagrams") class DiagramEntity { @Id UUID id; @Column(name="project_id",nullable=false) UUID projectId; @Column(nullable=false) String name; @JdbcTypeCode(SqlTypes.JSON) @Column(columnDefinition="jsonb",nullable=false) JsonNode document; @Column(name="created_by",nullable=false) UUID createdBy; @Column(nullable=false) Instant updatedAt; protected DiagramEntity(){} DiagramEntity(UUID id,UUID projectId,String name,JsonNode document,UUID createdBy){this.id=id;this.projectId=projectId;this.name=name;this.document=document;this.createdBy=createdBy;this.updatedAt=Instant.now();} @PreUpdate void touch(){updatedAt=Instant.now();}}
+

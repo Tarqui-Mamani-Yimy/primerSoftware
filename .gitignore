@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 planing.md
+
+backend/.mvn/apache-maven-*/
+backend/.mvn/repository/
+backend/target/

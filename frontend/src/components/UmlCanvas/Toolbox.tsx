@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { UMLClassNode, Stereotype } from '../../types';
+import { RelationshipType, UMLClassNode, Stereotype } from '../../types';
 
 interface ToolboxProps {
   classes: UMLClassNode[];
   selectedClassId: string;
   onSelectClass: (id: string) => void;
   onAddClass: (type: Stereotype) => void;
+  onSelectRelationshipType: (type: RelationshipType | null) => void;
+  activeRelationshipType: RelationshipType | null;
   zoomLevel: number;
 }
 
@@ -14,10 +16,11 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   selectedClassId,
   onSelectClass,
   onAddClass,
+  onSelectRelationshipType,
+  activeRelationshipType,
   zoomLevel
 }) => {
   const [filterText, setFilterText] = useState('');
-  const [activeRelMode, setActiveRelMode] = useState<string | null>(null);
 
   const filteredClasses = classes.filter(c => 
     c.name.toLowerCase().includes(filterText.toLowerCase()) ||
@@ -125,9 +128,12 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             ].map(rel => (
               <div
                 key={rel.id}
-                onClick={() => setActiveRelMode(activeRelMode === rel.id ? null : rel.id)}
+                onClick={() => {
+                  const next = activeRelationshipType === rel.id ? null : rel.id as RelationshipType;
+                  onSelectRelationshipType(next);
+                }}
                 className={`flex items-center justify-between p-1.5 border transition-colors cursor-pointer group ${
-                  activeRelMode === rel.id
+                  activeRelationshipType === rel.id
                     ? 'bg-[#262a33] border-[#4edea3]'
                     : 'bg-[#1c2028] border-[#3c4a42] hover:bg-[#262a33]'
                 }`}

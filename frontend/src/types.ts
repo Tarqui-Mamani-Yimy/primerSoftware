@@ -68,6 +68,18 @@ export interface UMLRelationship {
   label?: string;
 }
 
+/**
+ * Portable document exchanged with the diagram API. Keep this independent of
+ * JointJS: the renderer is an implementation detail, not the source of truth.
+ */
+export interface UMLDiagramDocument {
+  schemaVersion: 1;
+  id?: string;
+  name: string;
+  classes: UMLClassNode[];
+  relationships: UMLRelationship[];
+}
+
 export type JpaStrategy = 'JOINED' | 'SINGLE' | 'TABLE_PER';
 
 export interface Collaborator {

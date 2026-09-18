@@ -4,10 +4,12 @@ import { ActiveView } from '../types';
 interface HeaderProps {
   activeView: ActiveView;
   onSelectView: (view: ActiveView) => void;
-  onExport: (type: 'xmi' | 'plantuml' | 'sql' | 'zip') => void;
+  onExport: (type: 'svg' | 'png' | 'xmi' | 'plantuml' | 'sql' | 'zip') => void | Promise<void>;
+  projectName?: string;
+  onBackToProjects?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExport }) => {
+export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExport, projectName = 'E-Commerce Domain Model', onBackToProjects }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [showBranchMenu, setShowBranchMenu] = useState(false);
@@ -46,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExpo
               className="flex items-center gap-1.5 px-2.5 py-1 bg-[#181c24] border border-[#3c4a42] hover:border-[#86948a] text-xs transition-colors"
             >
               <span className="material-symbols-outlined text-sm text-[#4cd7f6]">folder_open</span>
-              <span className="text-[#dfe2ee] font-semibold">E-Commerce Domain Model</span>
+              <span className="text-[#dfe2ee] font-semibold">{projectName}</span>
               <span className="material-symbols-outlined text-sm text-[#bbcabf]">arrow_drop_down</span>
             </button>
 
@@ -178,6 +180,9 @@ export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExpo
               onClick={() => setShowExportMenu(!showExportMenu)}
               className="flex items-center gap-1.5 px-3 py-1 bg-[#1c2028] hover:bg-[#262a33] text-[#dfe2ee] border border-[#3c4a42] transition-colors text-xs font-mono uppercase tracking-wider font-semibold"
               type="button"
+              aria-haspopup="menu"
+              aria-expanded={showExportMenu}
+              aria-controls="diagram-export-menu"
             >
               <span className="material-symbols-outlined text-sm text-[#4cd7f6]">ios_share</span>
               <span>Export</span>
@@ -185,10 +190,33 @@ export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExpo
             </button>
 
             {showExportMenu && (
-              <div className="absolute right-0 mt-1 w-56 bg-[#262a33] border border-[#3c4a42] shadow-2xl p-1 z-50 font-mono text-xs">
+              <div id="diagram-export-menu" className="absolute right-0 mt-1 w-56 bg-[#262a33] border border-[#3c4a42] shadow-2xl p-1 z-50 font-mono text-xs" role="menu" aria-label="Export diagram">
+                <button
+                  onClick={() => { void onExport('svg'); setShowExportMenu(false); }}
+                  className="w-full text-left px-2.5 py-1.5 text-[#dfe2ee] hover:bg-[#1c2028] hover:text-[#4edea3] transition-colors flex items-center justify-between"
+                  type="button"
+                  role="menuitem"
+                  aria-label="Download the complete UML diagram as SVG"
+                >
+                  <span>Diagram SVG</span>
+                  <span className="text-[10px] text-[#86948a]">.svg</span>
+                </button>
+                <button
+                  onClick={() => { void onExport('png'); setShowExportMenu(false); }}
+                  className="w-full text-left px-2.5 py-1.5 text-[#dfe2ee] hover:bg-[#1c2028] hover:text-[#4edea3] transition-colors flex items-center justify-between"
+                  type="button"
+                  role="menuitem"
+                  aria-label="Download the complete UML diagram as PNG"
+                >
+                  <span>Diagram PNG</span>
+                  <span className="text-[10px] text-[#86948a]">.png</span>
+                </button>
+                <div className="h-px bg-[#3c4a42] my-1"></div>
                 <button
                   onClick={() => { onExport('xmi'); setShowExportMenu(false); }}
                   className="w-full text-left px-2.5 py-1.5 text-[#dfe2ee] hover:bg-[#1c2028] hover:text-[#4edea3] transition-colors flex items-center justify-between"
+                  type="button"
+                  role="menuitem"
                 >
                   <span>XMI Enterprise Architect</span>
                   <span className="text-[10px] text-[#86948a]">.xmi</span>
@@ -196,6 +224,8 @@ export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExpo
                 <button
                   onClick={() => { onExport('plantuml'); setShowExportMenu(false); }}
                   className="w-full text-left px-2.5 py-1.5 text-[#dfe2ee] hover:bg-[#1c2028] hover:text-[#4edea3] transition-colors flex items-center justify-between"
+                  type="button"
+                  role="menuitem"
                 >
                   <span>PlantUML Schema</span>
                   <span className="text-[10px] text-[#86948a]">.puml</span>
@@ -203,6 +233,8 @@ export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExpo
                 <button
                   onClick={() => { onExport('sql'); setShowExportMenu(false); }}
                   className="w-full text-left px-2.5 py-1.5 text-[#dfe2ee] hover:bg-[#1c2028] hover:text-[#4edea3] transition-colors flex items-center justify-between"
+                  type="button"
+                  role="menuitem"
                 >
                   <span>Postgres DDL / Prisma</span>
                   <span className="text-[10px] text-[#86948a]">.sql</span>
@@ -211,6 +243,8 @@ export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExpo
                 <button
                   onClick={() => { onExport('zip'); setShowExportMenu(false); }}
                   className="w-full text-left px-2.5 py-1.5 text-[#4edea3] hover:bg-[#1c2028] font-bold transition-colors flex items-center justify-between"
+                  type="button"
+                  role="menuitem"
                 >
                   <span>Descargar .ZIP (Maven)</span>
                   <span className="material-symbols-outlined text-xs">archive</span>
@@ -222,14 +256,14 @@ export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExpo
           <div className="h-4 w-px bg-[#3c4a42]"></div>
 
           {/* User Profile Avatar with Mic Badge */}
-          <div className="relative flex items-center cursor-pointer group" title="Lead Architect (Online)">
+          <button type="button" onClick={onBackToProjects} className="relative flex items-center cursor-pointer group rounded-full focus:outline-none focus:ring-2 focus:ring-[#4edea3]" title="Back to projects" aria-label="Back to projects">
             <div className="w-8 h-8 rounded-full bg-[#1c2028] border border-[#3c4a42] flex items-center justify-center text-xs font-bold text-[#4edea3]">
               ME
             </div>
             <span className="absolute -bottom-1 -right-1 flex items-center justify-center w-4 h-4 bg-[#b090ff] text-[#4600a7] rounded-full ring-2 ring-[#0f131c]">
               <span className="material-symbols-outlined text-[10px]">mic</span>
             </span>
-          </div>
+          </button>
         </div>
       </div>
     </header>
