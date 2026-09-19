@@ -25,12 +25,12 @@ func TestV1ReplicatesSchemaAuthority(t *testing.T) {
 	migs := migrate.Ordered()
 	v1 := migs[0].SQL
 	for _, table := range []string{
-		"CREATE TABLE users",
-		"CREATE TABLE projects",
-		"CREATE TABLE project_memberships",
-		"CREATE TABLE diagrams",
-		"CREATE TABLE diagram_versions",
-		"CREATE TABLE refresh_tokens",
+		"CREATE TABLE IF NOT EXISTS users",
+		"CREATE TABLE IF NOT EXISTS projects",
+		"CREATE TABLE IF NOT EXISTS project_memberships",
+		"CREATE TABLE IF NOT EXISTS diagrams",
+		"CREATE TABLE IF NOT EXISTS diagram_versions",
+		"CREATE TABLE IF NOT EXISTS refresh_tokens",
 	} {
 		if !contains(v1, table) {
 			t.Errorf("V1 must replicate %q from the schema authority", table)
@@ -38,6 +38,9 @@ func TestV1ReplicatesSchemaAuthority(t *testing.T) {
 	}
 	if !contains(v1, "ana@example.com") || !contains(v1, "Password123!") {
 		t.Errorf("V1 must replicate the development seed identities")
+	}
+	if !contains(v1, "ON CONFLICT (email) DO NOTHING") {
+		t.Errorf("V1 must seed idempotently over pre-existing databases")
 	}
 }
 
