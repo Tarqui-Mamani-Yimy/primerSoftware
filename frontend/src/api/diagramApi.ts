@@ -1,5 +1,6 @@
 import { UMLDiagramDocument } from '../types';
-const API_BASE_URL = (globalThis as typeof globalThis & { __UML_API_BASE_URL__?: string }).__UML_API_BASE_URL__ ?? 'http://localhost:8080/api/v1';
+const runtimeApiBaseUrl = (globalThis as typeof globalThis & { __UML_API_BASE_URL__?: string }).__UML_API_BASE_URL__;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || runtimeApiBaseUrl || 'http://localhost:8080/api/v1';
 let accessToken: string | undefined;
 export interface AuthenticatedUser { accessToken: string; userId: string; displayName: string; email: string; }
 export interface AssignedProject { id: string; name: string; description: string; role: 'OWNER' | 'COLLABORATOR'; diagramCount: number; }
