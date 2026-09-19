@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'models.dart';
 import 'strings.dart';
+import 'voice_transcription_service.dart';
 
 void main() => runApp(UmlArchitectApp(api: ApiClient()));
 
@@ -288,6 +289,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
   String saveStatus = AppStrings.saved;
   Timer? autosaveTimer;
   bool dirty = false;
+  final VoiceTranscriptionService voiceService = VoiceTranscriptionService();
+  bool voiceBusy = false;
+  bool voiceRecording = false;
+  String voiceStatus = '';
+  String voiceText = '';
   DateTime? lastTouched;
   // Conflict UI: when the server returns 409 we hold the snapshot here and
   // give the user a choice between overwriting (keep mine) and discarding
@@ -305,7 +311,45 @@ class _WorkspacePageState extends State<WorkspacePage> {
   void dispose() {
     autosaveTimer?.cancel();
     name.dispose();
+    unawaited(voiceService.dispose());
     super.dispose();
+  }
+
+  Future<void> toggleVoiceTranscription() async {
+    if (voiceBusy) return;
+    if (!voiceRecording) {
+      setState(() { voiceBusy = true; voiceStatus = AppStrings.preparingVoiceModel; voiceText = ''; });
+      try {
+        await voiceService.startRecording(onDownloadProgress: (progress) {
+          if (!mounted) return;
+          setState(() => voiceStatus = progress == null
+              ? AppStrings.downloadingVoiceModel
+              : '${AppStrings.downloadingVoiceModel} ${(progress * 100).round()}%');
+        });
+        if (mounted) setState(() { voiceRecording = true; voiceStatus = AppStrings.recordingVoice; });
+      } on VoicePermissionException {
+        if (mounted) setState(() => voiceStatus = AppStrings.voicePermissionDenied);
+      } catch (_) {
+        if (mounted) setState(() => voiceStatus = AppStrings.voiceModelFailed);
+      } finally {
+        if (mounted) setState(() => voiceBusy = false);
+      }
+      return;
+    }
+
+    setState(() { voiceBusy = true; voiceStatus = AppStrings.transcribingVoice; });
+    try {
+      final text = await voiceService.stopAndTranscribe();
+      if (mounted) setState(() {
+        voiceRecording = false;
+        voiceText = text;
+        voiceStatus = text.isEmpty ? AppStrings.voiceEmpty : AppStrings.voiceReady;
+      });
+    } catch (_) {
+      if (mounted) setState(() { voiceRecording = false; voiceStatus = AppStrings.voiceFailed; });
+    } finally {
+      if (mounted) setState(() => voiceBusy = false);
+    }
   }
 
   // flushOnExit is called when the user pops or the OS starts tearing down
@@ -589,6 +633,35 @@ class _WorkspacePageState extends State<WorkspacePage> {
               TextField(controller: name, onChanged: (_) => scheduleAutosave(), decoration: const InputDecoration(labelText: AppStrings.diagramName)),
               Padding(padding: const EdgeInsets.only(top: 8), child: Text(saveStatus, key: const Key('workspace.status'))),
               const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    Text(AppStrings.voiceTranscription, style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 4),
+                    const Text(AppStrings.voiceTranscriptionHelp),
+                    if (voiceStatus.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(voiceStatus, key: const Key('workspace.voice.status'))),
+                    if (voiceText.isNotEmpty) Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Semantics(
+                        label: AppStrings.voiceTranscription,
+                        value: voiceText,
+                        child: InputDecorator(
+                          decoration: const InputDecoration(labelText: 'Texto transcripto'),
+                          child: SelectableText(voiceText),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: voiceBusy ? null : toggleVoiceTranscription,
+                      icon: Icon(voiceRecording ? Icons.stop : Icons.mic),
+                      label: Text(voiceRecording ? AppStrings.stopAndTranscribe : AppStrings.recordVoice),
+                    ),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 8),
               FilledButton.icon(onPressed: addClass, icon: const Icon(Icons.add), label: const Text(AppStrings.addClass)),
               const SizedBox(height: 8),
               ...document.classes.map((umlClass) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
