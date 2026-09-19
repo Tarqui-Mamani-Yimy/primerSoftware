@@ -1,0 +1,60 @@
+{
+  "diagramName": "Edge",
+  "entities": [
+    "Class_",
+    "Order",
+    "Order_2"
+  ],
+  "relationships": [
+    "ManyToMany Order{order} to Order{order_2}",
+    "OneToMany Order{class_} to Class_{order}"
+  ],
+  "dropped": [
+    {
+      "kind": "enum",
+      "location": "class Status",
+      "detail": "stereotype \"Enum\" without value list (the UML Attribute carries id/name/type/visibility only); JDL enum not emitted"
+    },
+    {
+      "kind": "layout",
+      "location": "class Class_",
+      "detail": "x=0 y=0 (canvas coordinates do not exist in JDL)"
+    },
+    {
+      "kind": "layout",
+      "location": "class Order",
+      "detail": "x=0 y=0 (canvas coordinates do not exist in JDL)"
+    },
+    {
+      "kind": "layout",
+      "location": "class Order_2",
+      "detail": "x=0 y=0 (canvas coordinates do not exist in JDL)"
+    },
+    {
+      "kind": "relationship",
+      "location": "relationship g1",
+      "detail": "generalization from \"Order\" to \"Order_2\" (warn-and-skip; remodel inheritance in JHipster)"
+    },
+    {
+      "kind": "relationship",
+      "location": "relationship d1",
+      "detail": "dependency from \"Order\" to \"Class_\" (warn-and-skip; dependencies are not expressed in JDL)"
+    },
+    {
+      "kind": "relationship",
+      "location": "relationship x1",
+      "detail": "association with dangling endpoint (unknown class id \"nope\")"
+    }
+  ],
+  "warnings": [
+    "class \"class\" renamed to entity \"Class_\" (Java identifier sanitization)",
+    "class \"order\" renamed to entity \"Order_2\" (name collision after sanitization)",
+    "class \"Status\" with stereotype \"Enum\" skipped (no enum values in the UML model); remodel it as a JDL enum manually",
+    "class \"Class_\" attribute \"int\" renamed to field \"int_\" (Java identifier sanitization)",
+    "class \"Class_\" field \"int_\": unknown UML type \"Mystery\"; emitted as String",
+    "relationship g1: generalization from \"Order\" to \"Order_2\" skipped (inheritance is remodeled in JHipster, not generated)",
+    "relationship d1: dependency from \"Order\" to \"Class_\" skipped (dependencies are not expressed in JDL)",
+    "relationship x1: unknown class id \"nope\"; relationship skipped",
+    "1 aggregation/composition relationship(s) flattened to plain JDL association(s); UML ownership and cascade semantics are not expressed in JDL"
+  ]
+}

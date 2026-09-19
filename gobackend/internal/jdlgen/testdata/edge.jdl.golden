@@ -1,0 +1,22 @@
+// Generated from UML diagram "Edge" by ai-uml-architect (GEN-02).
+// Scaffold with: jhipster jdl model.jdl (requires JHipster installed).
+
+entity Class_ {
+  int_ String
+}
+
+entity Order {
+  title String
+}
+
+entity Order_2 {
+  title String
+}
+
+relationship ManyToMany {
+  Order{order} to Order{order_2}
+}
+
+relationship OneToMany {
+  Order{class_} to Class_{order}
+}

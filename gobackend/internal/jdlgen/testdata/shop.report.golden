@@ -1,0 +1,53 @@
+{
+  "diagramName": "Shop",
+  "entities": [
+    "Order",
+    "Customer"
+  ],
+  "relationships": [
+    "OneToMany Order{customer} to Customer{order}"
+  ],
+  "dropped": [
+    {
+      "kind": "layout",
+      "location": "class Order",
+      "detail": "x=10 y=20 width=220 (canvas coordinates do not exist in JDL)"
+    },
+    {
+      "kind": "package",
+      "location": "class Order",
+      "detail": "package \"shop\" (JHipster derives packages from baseName)"
+    },
+    {
+      "kind": "tableBinding",
+      "location": "class Order",
+      "detail": "table \"orders\" (JHipster generates table names)"
+    },
+    {
+      "kind": "visibility",
+      "location": "class Order attribute total",
+      "detail": "visibility \"private\" (not expressed in JDL)"
+    },
+    {
+      "kind": "method",
+      "location": "class Order",
+      "detail": "checkout(): void (behavior is not expressed in JDL)"
+    },
+    {
+      "kind": "visibility",
+      "location": "class Order method checkout",
+      "detail": "visibility \"public\" (not expressed in JDL)"
+    },
+    {
+      "kind": "layout",
+      "location": "class Customer",
+      "detail": "x=300 y=20 (canvas coordinates do not exist in JDL)"
+    },
+    {
+      "kind": "label",
+      "location": "relationship r1",
+      "detail": "label \"placed by\" (not expressed in JDL)"
+    }
+  ],
+  "warnings": []
+}

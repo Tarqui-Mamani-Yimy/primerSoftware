@@ -1,0 +1,15 @@
+// Generated from UML diagram "Shop" by ai-uml-architect (GEN-02).
+// Scaffold with: jhipster jdl model.jdl (requires JHipster installed).
+
+entity Order {
+  total BigDecimal
+}
+
+entity Customer {
+  name String
+  email String
+}
+
+relationship OneToMany {
+  Order{customer} to Customer{order}
+}
