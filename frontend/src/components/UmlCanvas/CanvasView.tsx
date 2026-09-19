@@ -5,6 +5,7 @@ import { Inspector } from './Inspector';
 import { RelationshipInspector } from './RelationshipInspector';
 import { Toolbox } from './Toolbox';
 import { clipEdgeToNodeBorders, pointAlongEdge, validateRelationshipCreation } from '../../diagram/relationshipHelpers';
+import { es } from '../../i18n/es';
 
 interface CanvasViewProps {
   classes: UMLClassNode[];
@@ -89,7 +90,7 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
       const clicked = props.classes.find((umlClass) => umlClass.id === id);
       if (!pendingSourceId) {
         if (clicked && relationshipType === 'realization' && (clicked.stereotype === '«Interface»' || clicked.stereotype === '«Enum»')) {
-          setStatusHint('Realization needs a non-interface source class.');
+          setStatusHint('La realización necesita una clase origen que no sea interfaz.');
           return;
         }
         setPendingSourceId(id);
@@ -182,34 +183,34 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
 
   return <div className="relative flex h-[calc(100vh-4rem)] min-w-0 bg-[#0a0e16]">
     <Toolbox classes={props.classes} selectedClassId={props.selectedClassId} onSelectClass={(id) => { props.onSelectRelationship(''); props.onSelectClass(id); }} onAddClass={props.onAddClass} onSelectRelationshipType={selectRelationshipType} activeRelationshipType={relationshipType} zoomLevel={zoom} />
-    <section ref={viewportRef} onWheel={handleWheel} onPointerDown={handleCanvasPointerDown} onPointerMove={handlePointerMove} onPointerUp={endPointerAction} onPointerCancel={endPointerAction} className="relative h-full min-w-0 flex-1 overflow-hidden touch-none cursor-grab active:cursor-grabbing" aria-label="Interactive UML class diagram canvas">
+    <section ref={viewportRef} onWheel={handleWheel} onPointerDown={handleCanvasPointerDown} onPointerMove={handlePointerMove} onPointerUp={endPointerAction} onPointerCancel={endPointerAction} className="relative h-full min-w-0 flex-1 overflow-hidden touch-none cursor-grab active:cursor-grabbing" aria-label={es.canvas.interactiveCanvas}>
       <div className="absolute left-4 top-4 z-20 flex items-center gap-2 border border-[#3c4a42] bg-[#262a33] p-2 font-mono text-xs shadow-lg">
         <div className="relative border-r border-[#3c4a42] pr-2">
           <button type="button" onClick={() => setShowDocuments((current) => !current)} className="max-w-44 truncate text-[#dfe2ee] hover:text-[#4edea3]" title="Open or create a diagram">
-            {props.diagramName || 'No diagram'} ▾
+            {props.diagramName || es.canvas.noDiagram} ▾
           </button>
           {showDocuments && <div className="absolute left-0 top-7 w-64 border border-[#3c4a42] bg-[#1c2028] p-1 shadow-xl">
-            <button type="button" onClick={() => { props.onCreateDiagram(); setShowDocuments(false); }} className="w-full border-b border-[#3c4a42] px-2 py-2 text-left text-[#4edea3] hover:bg-[#262a33]">+ New diagram</button>
+            <button type="button" onClick={() => { props.onCreateDiagram(); setShowDocuments(false); }} className="w-full border-b border-[#3c4a42] px-2 py-2 text-left text-[#4edea3] hover:bg-[#262a33]">{es.canvas.newDiagram}</button>
             {props.diagrams.map((diagram) => <button key={diagram.id} type="button" onClick={() => { props.onOpenDiagram(diagram.id); setShowDocuments(false); }} className={`w-full px-2 py-2 text-left hover:bg-[#262a33] ${diagram.id === props.diagramId ? 'text-[#4edea3]' : 'text-[#dfe2ee]'}`}>
               <span className="block truncate">{diagram.name}</span><span className="text-[10px] text-[#86948a]">{new Date(diagram.updatedAt).toLocaleString()}</span>
             </button>)}
           </div>}
         </div>
         {props.diagramId && <input aria-label="Diagram name" value={props.diagramName} onChange={(event) => props.onRenameDiagram(event.target.value)} className="w-32 bg-transparent text-[#bbcabf] outline-none focus:text-white" placeholder="Diagram name" />}
-        <span className={props.persistenceStatus === 'error' ? 'text-[#ffb4ab]' : props.persistenceStatus === 'saved' ? 'text-[#4edea3]' : 'text-[#bbcabf]'}>{props.isDocumentLoading ? 'Loading…' : props.persistenceStatus === 'saving' ? 'Saving…' : props.persistenceStatus === 'saved' ? 'Saved' : props.persistenceStatus === 'error' ? 'Save failed' : ''}</span>
+        <span className={props.persistenceStatus === 'error' ? 'text-[#ffb4ab]' : props.persistenceStatus === 'saved' ? 'text-[#4edea3]' : 'text-[#bbcabf]'}>{props.isDocumentLoading ? es.canvas.loading : props.persistenceStatus === 'saving' ? es.canvas.saving : props.persistenceStatus === 'saved' ? es.canvas.saved : props.persistenceStatus === 'error' ? es.canvas.saveFailed : ''}</span>
         {props.diagramId && <div className="relative border-l border-[#3c4a42] pl-2">
-          <button type="button" onClick={() => { setShowVersions((current) => !current); if (!showVersions) props.onLoadVersions(); }} className="hover:text-[#4edea3]">History</button>
+          <button type="button" onClick={() => { setShowVersions((current) => !current); if (!showVersions) props.onLoadVersions(); }} className="hover:text-[#4edea3]" aria-label={es.canvas.history}>{es.canvas.history}</button>
           {showVersions && <div className="absolute left-0 top-7 w-56 border border-[#3c4a42] bg-[#1c2028] p-1 shadow-xl">
-            {props.versions.length === 0 ? <p className="p-2 text-[#86948a]">No versions yet</p> : props.versions.map((version) => <button key={version.id} type="button" onClick={() => { props.onRestoreVersion(version.versionNumber); setShowVersions(false); }} className="w-full px-2 py-2 text-left text-[#dfe2ee] hover:bg-[#262a33]">
-              Version {version.versionNumber}<span className="ml-2 text-[10px] text-[#86948a]">{new Date(version.createdAt).toLocaleString()}</span>
+            {props.versions.length === 0 ? <p className="p-2 text-[#86948a]">{es.canvas.noVersions}</p> : props.versions.map((version) => <button key={version.id} type="button" onClick={() => { props.onRestoreVersion(version.versionNumber); setShowVersions(false); }} className="w-full px-2 py-2 text-left text-[#dfe2ee] hover:bg-[#262a33]">
+              {es.canvas.version(version.versionNumber)}<span className="ml-2 text-[10px] text-[#86948a]">{new Date(version.createdAt).toLocaleString()}</span>
             </button>)}
           </div>}
         </div>}
         <button type="button" className="px-1 text-lg hover:text-[#4edea3]" onClick={() => changeZoom(-.1)} aria-label="Zoom out">−</button>
         <button type="button" className="min-w-12 hover:text-[#4edea3]" onClick={resetViewport} title="Reset viewport">{Math.round(zoom * 100)}%</button>
         <button type="button" className="px-1 text-lg hover:text-[#4edea3]" onClick={() => changeZoom(.1)} aria-label="Zoom in">+</button>
-        <span className="border-l border-[#3c4a42] pl-2 text-[#4edea3]">{relationshipType ? pendingSourceId ? `Connect: select target (${relationshipType})` : `Connect: select source (${relationshipType})` : 'Drag to pan · wheel to zoom'}</span>
-        {relationshipType && <button type="button" className="border-l border-[#3c4a42] pl-2 text-[#ffb4ab] hover:text-white" onClick={cancelConnectMode}>Cancel</button>}
+        <span className="border-l border-[#3c4a42] pl-2 text-[#4edea3]">{relationshipType ? pendingSourceId ? `Conectar: seleccioná el destino (${relationshipType})` : `Conectar: seleccioná el origen (${relationshipType})` : es.canvas.dragPanZoom}</span>
+        {relationshipType && <button type="button" className="border-l border-[#3c4a42] pl-2 text-[#ffb4ab] hover:text-white" onClick={cancelConnectMode}>{es.canvas.cancel}</button>}
       </div>
       {statusHint && <div role="status" className="absolute left-4 top-16 z-20 max-w-md border border-[#4cd7f6] bg-[#1c2028] px-3 py-2 font-mono text-xs text-[#dfe2ee] shadow-lg">{statusHint}</div>}
       <div className="absolute inset-0 opacity-30 [background-image:radial-gradient(#4edea3_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />

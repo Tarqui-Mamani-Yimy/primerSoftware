@@ -52,7 +52,7 @@ export const Inspector: React.FC<InspectorProps> = ({
   };
 
   const handleAddMethod = () => {
-    const methodName = prompt('Enter method signature (e.g. recalculateDiscount(rate))', 'calculateDiscount()');
+    const methodName = prompt('Ingresá la firma del método (por ejemplo, recalcularDescuento(tasa))', 'recalcularDescuento()');
     if (!methodName) return;
     const newMethod: UMLMethod = {
       id: `meth_${Date.now()}`,
@@ -102,12 +102,12 @@ export const Inspector: React.FC<InspectorProps> = ({
         {/* Class Metadata */}
         <div className="space-y-2 bg-[#1c2028] p-2.5 border border-[#3c4a42]">
           <div className="flex items-center justify-between pb-1 border-b border-[#3c4a42]">
-            <span className="text-[10px] uppercase font-bold text-[#bbcabf]">Class Metadata</span>
+            <span className="text-[10px] uppercase font-bold text-[#bbcabf]">Metadatos de clase</span>
             <span className="material-symbols-outlined text-xs text-[#4edea3]">data_object</span>
           </div>
 
           <div>
-            <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Class Identifier</label>
+            <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Identificador de clase</label>
             <input
               className="w-full bg-[#0a0e16] px-2 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
               type="text"
@@ -117,7 +117,7 @@ export const Inspector: React.FC<InspectorProps> = ({
           </div>
 
           <div>
-            <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Target Package</label>
+            <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Paquete destino</label>
             <input
               className="w-full bg-[#0a0e16] px-2 py-1 text-[#bbcabf] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
               type="text"
@@ -128,7 +128,7 @@ export const Inspector: React.FC<InspectorProps> = ({
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Stereotype</label>
+              <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Estereotipo</label>
               <select
                 className="w-full bg-[#0a0e16] px-2 py-1 text-[#4edea3] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
                 value={selectedClass.stereotype}
@@ -145,7 +145,7 @@ export const Inspector: React.FC<InspectorProps> = ({
               </select>
             </div>
             <div>
-              <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Table Binding</label>
+              <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">Tabla asociada</label>
               <input
                 className="w-full bg-[#0a0e16] px-2 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
                 type="text"
@@ -167,13 +167,13 @@ export const Inspector: React.FC<InspectorProps> = ({
               className="flex items-center gap-1 text-xs text-[#4edea3] hover:underline"
             >
               <span className="material-symbols-outlined text-xs">add</span>
-              <span>New Field</span>
+              <span>Nuevo atributo</span>
             </button>
           </div>
 
           {showNewAttrModal && (
             <div className="p-2.5 bg-[#262a33] border border-[#4edea3] space-y-2">
-              <div className="text-[10px] text-[#4edea3] font-bold uppercase">Add Field to {selectedClass.name}</div>
+              <div className="text-[10px] text-[#4edea3] font-bold uppercase">Agregar atributo a {selectedClass.name}</div>
               <div className="grid grid-cols-3 gap-1.5">
                 <input
                   type="text"
@@ -213,13 +213,13 @@ export const Inspector: React.FC<InspectorProps> = ({
                     onClick={() => setShowNewAttrModal(false)}
                     className="px-2 py-0.5 text-xs text-[#bbcabf] hover:text-white"
                   >
-                    Cancel
+                    Cancelar
                   </button>
                   <button
                     onClick={handleAddAttribute}
                     className="px-2 py-0.5 bg-[#4edea3] text-black text-xs font-bold"
                   >
-                    Add
+                    Agregar
                   </button>
                 </div>
               </div>
@@ -244,7 +244,7 @@ export const Inspector: React.FC<InspectorProps> = ({
                   <button
                     onClick={() => handleDeleteAttribute(attr.id)}
                     className="text-[#bbcabf] hover:text-[#ffb4ab] transition-colors"
-                    title="Delete attribute"
+                    title="Eliminar atributo"
                   >
                     <span className="material-symbols-outlined text-xs">delete</span>
                   </button>
@@ -265,7 +265,7 @@ export const Inspector: React.FC<InspectorProps> = ({
               className="flex items-center gap-1 text-xs text-[#4edea3] hover:underline"
             >
               <span className="material-symbols-outlined text-xs">add</span>
-              <span>New Method</span>
+              <span>Nuevo método</span>
             </button>
           </div>
 
@@ -281,7 +281,7 @@ export const Inspector: React.FC<InspectorProps> = ({
                   <button
                     onClick={() => handleDeleteMethod(method.id)}
                     className="text-[#86948a] hover:text-[#ffb4ab]"
-                    title="Delete method"
+                    title="Eliminar método"
                   >
                     <span className="material-symbols-outlined text-xs">close</span>
                   </button>
@@ -293,7 +293,7 @@ export const Inspector: React.FC<InspectorProps> = ({
 
         {/* Target Code Preview Card */}
         <div className="p-2.5 bg-[#31353e] space-y-2 border border-[#3c4a42]">
-          <span className="text-[9px] uppercase text-[#bbcabf] block font-bold">Target Code Preview</span>
+          <span className="text-[9px] uppercase text-[#bbcabf] block font-bold">Vista previa del código destino</span>
           <div className="bg-[#0a0e16] p-2 text-[10px] text-[#dfe2ee] space-y-0.5 border border-[#3c4a42]">
             <span className="text-[#4edea3]">@Entity</span><br />
             <span className="text-[#4edea3]">@Table</span>(name = <span className="text-[#4cd7f6]">"{selectedClass.tableBinding}"</span>)<br />
@@ -308,7 +308,7 @@ export const Inspector: React.FC<InspectorProps> = ({
             className="w-full py-1.5 bg-[#1c2028] hover:bg-[#262a33] text-[#4edea3] border border-[#4edea3] text-xs uppercase text-center font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
           >
             <span className="material-symbols-outlined text-xs">bolt</span>
-            <span>Generate Spring DDL + Repository</span>
+            <span>Generar DDL Spring + repositorio</span>
           </button>
         </div>
       </div>
@@ -316,7 +316,7 @@ export const Inspector: React.FC<InspectorProps> = ({
       {/* Inspector Footer */}
       <div className="p-2.5 bg-[#1c2028] border-t border-[#3c4a42] flex items-center justify-between font-mono">
         <span className="text-xs text-[#bbcabf]">
-          Schema sync: <strong className="text-[#4edea3]">Auto</strong>
+          Sincronización del esquema: <strong className="text-[#4edea3]">Automática</strong>
         </span>
         <button
           onClick={handleSave}
@@ -325,10 +325,10 @@ export const Inspector: React.FC<InspectorProps> = ({
           {saveFeedback ? (
             <>
               <span className="material-symbols-outlined text-xs">done</span>
-              <span>Saved!</span>
+              <span>¡Guardado!</span>
             </>
           ) : (
-            <span>Save Entity</span>
+            <span>Guardar entidad</span>
           )}
         </button>
       </div>

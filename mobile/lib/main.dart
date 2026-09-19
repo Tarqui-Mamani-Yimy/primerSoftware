@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'models.dart';
+import 'strings.dart';
 
 void main() => runApp(UmlArchitectApp(api: ApiClient()));
 
@@ -13,7 +14,7 @@ class UmlArchitectApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'AI UML Architect',
+        title: AppStrings.appName,
         theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo), useMaterial3: true),
         home: LoginPage(api: api),
       );
@@ -57,14 +58,14 @@ class _LoginPageState extends State<LoginPage> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 const Icon(Icons.account_tree, size: 64),
                 const SizedBox(height: 16),
-                Text('AI UML Architect', style: Theme.of(context).textTheme.headlineMedium, textAlign: TextAlign.center),
+                Text(AppStrings.appName, style: Theme.of(context).textTheme.headlineMedium, textAlign: TextAlign.center),
                 const SizedBox(height: 32),
-                TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email')),
+                TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: AppStrings.email)),
                 const SizedBox(height: 12),
-                TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
+                TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: AppStrings.password, hintText: AppStrings.passwordPlaceholder)),
                 if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
                 const SizedBox(height: 20),
-                FilledButton(onPressed: busy ? null : submit, child: busy ? const CircularProgressIndicator() : const Text('Log in')),
+                FilledButton(onPressed: busy ? null : submit, child: busy ? const CircularProgressIndicator(semanticsLabel: AppStrings.loggingIn) : const Text(AppStrings.login)),
               ]),
             ),
           ),
@@ -85,14 +86,14 @@ class _ProjectsPageState extends State<ProjectsPage> {
   void initState() { super.initState(); future = widget.api.projects(); }
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Assigned projects')),
+        appBar: AppBar(title: const Text(AppStrings.assignedProjects)),
         body: FutureBuilder<List<Project>>(
           future: future,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return Center(child: Text('Could not load projects: ${snapshot.error}'));
+            if (snapshot.hasError) return Center(child: Text('${AppStrings.couldNotLoadProjects}: ${snapshot.error}'));
             final projects = snapshot.data ?? [];
-            if (projects.isEmpty) return const Center(child: Text('No assigned projects'));
+            if (projects.isEmpty) return const Center(child: Text(AppStrings.noProjects));
             return ListView.builder(
               padding: const EdgeInsets.all(12),
               itemCount: projects.length,
@@ -120,20 +121,20 @@ class _DiagramsPageState extends State<DiagramsPage> {
   @override
   void initState() { super.initState(); future = widget.api.diagrams(widget.project.id); }
   Future<void> create() async {
-    final doc = await widget.api.createDiagram(widget.project.id, UmlDocument(name: 'New diagram'));
+    final doc = await widget.api.createDiagram(widget.project.id, UmlDocument(name: AppStrings.newDiagram));
     if (mounted) Navigator.of(context).push(MaterialPageRoute(builder: (_) => WorkspacePage(api: widget.api, project: widget.project, document: doc)));
   }
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(widget.project.name)),
+        appBar: AppBar(title: Text(widget.project.name, semanticsLabel: '${AppStrings.diagrams}: ${widget.project.name}')),
         floatingActionButton: FloatingActionButton(onPressed: create, child: const Icon(Icons.add)),
         body: FutureBuilder<List<DiagramSummary>>(
           future: future,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return Center(child: Text('Could not load diagrams: ${snapshot.error}'));
+            if (snapshot.hasError) return Center(child: Text('${AppStrings.couldNotLoadDiagrams}: ${snapshot.error}'));
             final diagrams = snapshot.data ?? [];
-            if (diagrams.isEmpty) return const Center(child: Text('No diagrams yet. Create one.'));
+            if (diagrams.isEmpty) return const Center(child: Text(AppStrings.noDiagrams));
             return ListView(children: diagrams.map((diagram) => ListTile(title: Text(diagram.name), trailing: const Icon(Icons.chevron_right),
               onTap: () async {
                 final doc = await widget.api.diagram(widget.project.id, diagram.id);
@@ -157,7 +158,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
   late UmlDocument document;
   late TextEditingController name;
   bool saving = false;
-  String saveStatus = 'Saved';
+  String saveStatus = AppStrings.saved;
   Timer? autosaveTimer;
 
   @override
@@ -168,19 +169,19 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   void scheduleAutosave() {
     autosaveTimer?.cancel();
-    setState(() => saveStatus = 'Saving soon…');
+    setState(() => saveStatus = AppStrings.savingSoon);
     autosaveTimer = Timer(const Duration(milliseconds: 700), save);
   }
 
   Future<void> save() async {
     document.name = name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
     if (document.id == null || saving) return;
-    setState(() { saving = true; saveStatus = 'Saving…'; });
+    setState(() { saving = true; saveStatus = AppStrings.saving; });
     try {
       document = await widget.api.updateDiagram(widget.project.id, document.id!, document);
-      if (mounted) setState(() => saveStatus = 'Saved');
+      if (mounted) setState(() => saveStatus = AppStrings.saved);
     } catch (e) {
-      if (mounted) setState(() => saveStatus = 'Save failed');
+      if (mounted) setState(() => saveStatus = AppStrings.saveFailed);
     } finally { if (mounted) setState(() => saving = false); }
   }
 
@@ -197,7 +198,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load versions: $error')),
+          SnackBar(content: Text('${AppStrings.couldNotLoadVersions}: $error')),
         );
       }
       return;
@@ -210,8 +211,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
           shrinkWrap: true,
           padding: const EdgeInsets.all(16),
           children: [
-            Text('Version history', style: Theme.of(context).textTheme.titleLarge),
-            if (versions.isEmpty) const ListTile(title: Text('No versions yet')),
+            Text(AppStrings.versionHistory, style: Theme.of(context).textTheme.titleLarge),
+            if (versions.isEmpty) const ListTile(title: Text(AppStrings.noVersions)),
             ...versions.map((version) => ListTile(
               title: Text('Version ${version.versionNumber}'),
               subtitle: version.createdAt == null ? null : Text(version.createdAt!),
@@ -222,13 +223,13 @@ class _WorkspacePageState extends State<WorkspacePage> {
                   setState(() {
                     document = restored;
                     name.text = restored.name;
-                    saveStatus = 'Restored';
+                    saveStatus = AppStrings.restored;
                   });
                   Navigator.of(context).pop();
                 } catch (error) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Restore failed: $error')),
+                      SnackBar(content: Text('${AppStrings.restoreFailed}: $error')),
                     );
                   }
                 }
@@ -242,22 +243,22 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Workspace'), actions: [
-          IconButton(onPressed: saving ? null : showVersions, icon: const Icon(Icons.history), tooltip: 'Version history'),
-          IconButton(onPressed: saving ? null : save, icon: saving ? const CircularProgressIndicator() : const Icon(Icons.save), tooltip: 'Save'),
+        appBar: AppBar(title: const Text(AppStrings.workspace), actions: [
+          IconButton(onPressed: saving ? null : showVersions, icon: const Icon(Icons.history), tooltip: AppStrings.versionHistory),
+          IconButton(onPressed: saving ? null : save, icon: saving ? const CircularProgressIndicator(semanticsLabel: AppStrings.saving) : const Icon(Icons.save), tooltip: AppStrings.save),
         ]),
         body: ListView(padding: const EdgeInsets.all(16), children: [
-          TextField(controller: name, onChanged: (_) => scheduleAutosave(), decoration: const InputDecoration(labelText: 'Diagram name')),
+          TextField(controller: name, onChanged: (_) => scheduleAutosave(), decoration: const InputDecoration(labelText: AppStrings.diagramName)),
           Padding(padding: const EdgeInsets.only(top: 8), child: Text(saveStatus)),
           const SizedBox(height: 16),
-          FilledButton.icon(onPressed: addClass, icon: const Icon(Icons.add), label: const Text('Add class')),
+          FilledButton.icon(onPressed: addClass, icon: const Icon(Icons.add), label: const Text(AppStrings.addClass)),
           const SizedBox(height: 8),
           ...document.classes.map((umlClass) => Card(child: Padding(padding: const EdgeInsets.all(12), child: TextFormField(
-            decoration: InputDecoration(labelText: 'Class name', prefixIcon: const Icon(Icons.class_)),
+            decoration: const InputDecoration(labelText: AppStrings.className, prefixIcon: Icon(Icons.class_)),
             initialValue: umlClass.name,
             onChanged: (value) { umlClass.name = value; scheduleAutosave(); },
           )))),
-          if (document.classes.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('Add a class to begin modeling.')),
+          if (document.classes.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text(AppStrings.addClassHint)),
         ]),
       );
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { RelationshipType, UMLClassNode, Stereotype } from '../../types';
+import { es } from '../../i18n/es';
 
 interface ToolboxProps {
   classes: UMLClassNode[];
@@ -33,7 +34,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       <div className="p-3 flex items-center justify-between bg-[#1c2028] border-b border-[#3c4a42]">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[#4cd7f6] text-sm">widgets</span>
-          <span className="font-heading text-sm uppercase tracking-wider text-[#dfe2ee] font-bold">Toolbox</span>
+          <span className="font-heading text-sm uppercase tracking-wider text-[#dfe2ee] font-bold">{es.canvas.toolbox}</span>
         </div>
         <span className="text-[10px] px-1.5 py-0.5 bg-[#31353e] text-[#4edea3] font-bold font-mono">UML 2.5</span>
       </div>
@@ -44,7 +45,8 @@ export const Toolbox: React.FC<ToolboxProps> = ({
           <span className="material-symbols-outlined text-xs text-[#bbcabf] mr-1.5">search</span>
           <input
             className="w-full bg-transparent text-[#dfe2ee] text-xs font-mono focus:outline-none placeholder:text-[#86948a]"
-            placeholder="Filter entities & tools (Ctrl+F)"
+            placeholder={es.canvas.filter}
+            aria-label={es.canvas.filter}
             type="text"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
@@ -58,7 +60,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         {/* Classifier Elements */}
         <div>
           <div className="px-1 py-0.5 flex items-center justify-between text-[#bbcabf]">
-            <span className="text-[10px] uppercase tracking-widest font-mono font-bold">Classifiers</span>
+            <span className="text-[10px] uppercase tracking-widest font-mono font-bold">{es.canvas.classifiers}</span>
             <span className="text-[#4edea3] font-mono text-[10px]">[5]</span>
           </div>
 
@@ -66,46 +68,46 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             <button
               onClick={() => onAddClass('«Entity»')}
               className="flex items-center gap-2 p-1.5 bg-[#1c2028] hover:bg-[#262a33] text-[#dfe2ee] text-left transition-colors group border border-[#3c4a42]"
-              title="Click to add new Class node"
+              title="Agregar una nueva clase"
             >
               <span className="w-4 h-4 bg-[#4edea3]/20 text-[#4edea3] flex items-center justify-center font-bold text-[10px]">C</span>
-              <span className="group-hover:text-[#4edea3]">Class</span>
+              <span className="group-hover:text-[#4edea3]">{es.canvas.class}</span>
             </button>
 
             <button
               onClick={() => onAddClass('«Abstract»')}
               className="flex items-center gap-2 p-1.5 bg-[#1c2028] hover:bg-[#262a33] text-[#dfe2ee] text-left transition-colors group border border-[#3c4a42]"
-              title="Click to add new Abstract Class"
+              title="Agregar una nueva clase abstracta"
             >
               <span className="w-4 h-4 bg-[#4cd7f6]/20 text-[#4cd7f6] flex items-center justify-center font-bold italic text-[10px]">A</span>
-              <span className="group-hover:text-[#4cd7f6]">Abstract</span>
+              <span className="group-hover:text-[#4cd7f6]">{es.canvas.abstract}</span>
             </button>
 
             <button
               onClick={() => onAddClass('«Interface»')}
               className="flex items-center gap-2 p-1.5 bg-[#1c2028] hover:bg-[#262a33] text-[#dfe2ee] text-left transition-colors group border border-[#3c4a42]"
-              title="Click to add Interface"
+              title="Agregar una interfaz"
             >
               <span className="w-4 h-4 bg-[#d0bcff]/20 text-[#d0bcff] flex items-center justify-center font-bold text-[10px]">I</span>
-              <span className="group-hover:text-[#d0bcff]">Interface</span>
+              <span className="group-hover:text-[#d0bcff]">{es.canvas.interface}</span>
             </button>
 
             <button
               onClick={() => onAddClass('«Enum»')}
               className="flex items-center gap-2 p-1.5 bg-[#1c2028] hover:bg-[#262a33] text-[#dfe2ee] text-left transition-colors group border border-[#3c4a42]"
-              title="Click to add Enum"
+              title="Agregar una enumeración"
             >
               <span className="w-4 h-4 bg-[#353942] text-[#bbcabf] flex items-center justify-center font-bold text-[10px]">E</span>
-              <span className="group-hover:text-[#dfe2ee]">Enum</span>
+              <span className="group-hover:text-[#dfe2ee]">{es.canvas.enum}</span>
             </button>
 
             <button
               onClick={() => onAddClass('«ValueObject»')}
               className="col-span-2 flex items-center gap-2 p-1.5 bg-[#1c2028] hover:bg-[#262a33] text-[#dfe2ee] text-left transition-colors group border border-[#3c4a42]"
-              title="Click to add Record or Value Object"
+              title="Agregar un registro u objeto de valor"
             >
               <span className="w-4 h-4 bg-[#10b981]/20 text-[#4edea3] flex items-center justify-center font-bold text-[10px]">R</span>
-              <span className="group-hover:text-[#4edea3]">Record / Value Object</span>
+              <span className="group-hover:text-[#4edea3]">{es.canvas.valueObject}</span>
             </button>
           </div>
         </div>
@@ -113,18 +115,18 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         {/* Relationship Connectors */}
         <div>
           <div className="px-1 py-0.5 flex items-center justify-between text-[#bbcabf]">
-            <span className="text-[10px] uppercase tracking-widest font-mono font-bold">Relationships</span>
+            <span className="text-[10px] uppercase tracking-widest font-mono font-bold">{es.canvas.relationships}</span>
             <span className="material-symbols-outlined text-xs text-[#bbcabf]">alt_route</span>
           </div>
 
           <div className="space-y-1 mt-1.5 font-mono text-xs">
             {[
-              { id: 'association', label: 'Association', icon: 'trending_flat', sym: '——>', color: 'text-[#4cd7f6]' },
-              { id: 'aggregation', label: 'Aggregation', icon: 'diamond', sym: '♦——', color: 'text-[#bbcabf]' },
-              { id: 'composition', label: 'Composition', icon: 'diamond', fill: true, sym: '♦——', color: 'text-[#4edea3]' },
-              { id: 'generalization', label: 'Generalization', icon: 'arrow_upward', sym: '——△', color: 'text-[#d0bcff]' },
-              { id: 'realization', label: 'Realization', icon: 'arrow_split', sym: '- - -△', color: 'text-[#d0bcff]' },
-              { id: 'dependency', label: 'Dependency', icon: 'commit', sym: '- - ->', color: 'text-[#86948a]' }
+              { id: 'association', label: es.canvas.association, icon: 'trending_flat', sym: '——>', color: 'text-[#4cd7f6]' },
+              { id: 'aggregation', label: es.canvas.aggregation, icon: 'diamond', sym: '♦——', color: 'text-[#bbcabf]' },
+              { id: 'composition', label: es.canvas.composition, icon: 'diamond', fill: true, sym: '♦——', color: 'text-[#4edea3]' },
+              { id: 'generalization', label: es.canvas.generalization, icon: 'arrow_upward', sym: '——△', color: 'text-[#d0bcff]' },
+              { id: 'realization', label: es.canvas.realization, icon: 'arrow_split', sym: '- - -△', color: 'text-[#d0bcff]' },
+              { id: 'dependency', label: es.canvas.dependency, icon: 'commit', sym: '- - ->', color: 'text-[#86948a]' }
             ].map(rel => (
               <div
                 key={rel.id}
@@ -153,7 +155,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         {/* Package Explorer */}
         <div>
           <div className="px-1 py-0.5 flex items-center justify-between text-[#bbcabf]">
-            <span className="text-[10px] uppercase tracking-widest font-mono font-bold">Package Explorer</span>
+            <span className="text-[10px] uppercase tracking-widest font-mono font-bold">{es.canvas.packageExplorer}</span>
             <span className="text-[#4edea3] font-mono text-[10px]">{classes.length} nodes</span>
           </div>
 
@@ -192,7 +194,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       {/* Canvas Minimap Viewport */}
       <div className="p-2.5 bg-[#1c2028] border-t border-[#3c4a42]">
         <div className="flex items-center justify-between text-[#bbcabf] mb-1.5 font-mono">
-          <span className="text-[10px] uppercase tracking-wider font-bold">Canvas Viewport</span>
+          <span className="text-[10px] uppercase tracking-wider font-bold">{es.canvas.canvasViewport}</span>
           <span className="text-[#4edea3] text-[10px] font-bold">{Math.round(zoomLevel * 100)}% | 0,0</span>
         </div>
         <div className="w-full h-16 bg-[#0a0e16] relative overflow-hidden border border-[#3c4a42]">

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { es } from '../../i18n/es';
 
 export const GitDiffView: React.FC = () => {
   const [selectedCommit, setSelectedCommit] = useState('#7f3a9e');
@@ -27,8 +28,8 @@ export const GitDiffView: React.FC = () => {
         <div className="flex items-center gap-3">
           <span className="material-symbols-outlined text-[#d0bcff]">history_toggle_off</span>
           <div>
-            <h2 className="font-heading text-sm text-[#dfe2ee] font-bold">Branch &amp; Schema Diff</h2>
-            <p className="text-[11px] text-[#bbcabf]">Comparing feat/payment-order-v2 (HEAD) against origin/main</p>
+            <h2 className="font-heading text-sm text-[#dfe2ee] font-bold">{es.diff.title}</h2>
+            <p className="text-[11px] text-[#bbcabf]">{es.diff.comparing}</p>
           </div>
         </div>
 
@@ -38,19 +39,19 @@ export const GitDiffView: React.FC = () => {
               onClick={() => setViewMode('unified')}
               className={`px-2 py-1 ${viewMode === 'unified' ? 'bg-[#262a33] text-[#4edea3] font-bold' : 'text-[#bbcabf]'}`}
             >
-              Unified
+              {es.diff.unified}
             </button>
             <button
               onClick={() => setViewMode('split')}
               className={`px-2 py-1 ${viewMode === 'split' ? 'bg-[#262a33] text-[#4edea3] font-bold' : 'text-[#bbcabf]'}`}
             >
-              Split View
+              {es.diff.split}
             </button>
           </div>
 
           <button className="px-3 py-1.5 bg-[#4edea3] text-black font-bold text-xs uppercase flex items-center gap-1.5 shadow-md">
             <span className="material-symbols-outlined text-xs">merge_type</span>
-            <span>Create Pull Request</span>
+            <span>{es.diff.createPullRequest}</span>
           </button>
         </div>
       </div>
@@ -58,7 +59,7 @@ export const GitDiffView: React.FC = () => {
       <div className="grid grid-cols-12 flex-1">
         {/* Commits list */}
         <div className="col-span-12 md:col-span-3 bg-[#181c24] border-r border-[#3c4a42] p-3 space-y-2">
-          <div className="text-[10px] uppercase font-bold text-[#bbcabf] mb-2">Schema Commits on Branch</div>
+          <div className="text-[10px] uppercase font-bold text-[#bbcabf] mb-2">{es.diff.commits}</div>
           
           {[
             { hash: '#7f3a9e', msg: 'feat: add polymorphic payment & order JPA mappings', author: 'You', time: '14 min ago' },
@@ -79,7 +80,7 @@ export const GitDiffView: React.FC = () => {
                 <span className="text-[#86948a]">{c.time}</span>
               </div>
               <p className="line-clamp-2 text-white font-semibold">{c.msg}</p>
-              <span className="text-[10px] text-[#86948a] block mt-1">by {c.author}</span>
+              <span className="text-[10px] text-[#86948a] block mt-1">{es.diff.by} {c.author}</span>
             </div>
           ))}
         </div>
@@ -91,7 +92,7 @@ export const GitDiffView: React.FC = () => {
               <span className="text-[#4edea3] font-bold">src/main/java/com/architect/domain/model/Order.java</span>
               <span className="px-1.5 py-0.5 bg-[#10b981]/20 text-[#4edea3] text-[10px] font-bold">+6 -2</span>
             </div>
-            <span className="text-[10px] text-[#86948a]">Diff generated with Git 2.44</span>
+            <span className="text-[10px] text-[#86948a]">{es.diff.generatedWith} 2.44</span>
           </div>
 
           <div className="bg-[#181c24] border border-[#3c4a42] p-3 space-y-1">

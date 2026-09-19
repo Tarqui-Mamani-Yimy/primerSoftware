@@ -1,0 +1,30 @@
+class AppStrings {
+  static const appName = 'AI UML Architect';
+  static const email = 'Correo electrónico';
+  static const password = 'Contraseña';
+  static const passwordPlaceholder = 'Tu contraseña';
+  static const login = 'Iniciar sesión';
+  static const loggingIn = 'Ingresando…';
+  static const assignedProjects = 'Proyectos asignados';
+  static const noProjects = 'No hay proyectos asignados';
+  static const couldNotLoadProjects = 'No se pudieron cargar los proyectos';
+  static const diagrams = 'Diagramas';
+  static const couldNotLoadDiagrams = 'No se pudieron cargar los diagramas';
+  static const noDiagrams = 'Todavía no hay diagramas. Creá uno.';
+  static const newDiagram = 'Nuevo diagrama';
+  static const workspace = 'Espacio de trabajo';
+  static const diagramName = 'Nombre del diagrama';
+  static const addClass = 'Agregar clase';
+  static const className = 'Nombre de la clase';
+  static const addClassHint = 'Agregá una clase para comenzar a modelar.';
+  static const versionHistory = 'Historial de versiones';
+  static const noVersions = 'Todavía no hay versiones';
+  static const save = 'Guardar';
+  static const saved = 'Guardado';
+  static const savingSoon = 'Se guardará pronto…';
+  static const saving = 'Guardando…';
+  static const saveFailed = 'Error al guardar';
+  static const restored = 'Restaurado';
+  static const couldNotLoadVersions = 'No se pudieron cargar las versiones';
+  static const restoreFailed = 'No se pudo restaurar';
+}

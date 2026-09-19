@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { es } from '../../i18n/es';
 
 interface AiConsoleViewProps {
   onApplyRefactor?: (prompt: string) => void;
@@ -56,7 +57,7 @@ export const AiConsoleView: React.FC<AiConsoleViewProps> = ({ onApplyRefactor })
       <div className="p-3 bg-[#181c24] border-b border-[#3c4a42] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[#d0bcff]">auto_awesome</span>
-          <h2 className="font-heading text-sm text-white font-bold">AI Architect Console (Gemini &amp; ONNX AST)</h2>
+          <h2 className="font-heading text-sm text-white font-bold">{es.ai.title} (Gemini y ONNX AST)</h2>
         </div>
         <span className="text-[10px] px-2 py-0.5 bg-[#b090ff]/20 text-[#d0bcff] font-bold border border-[#d0bcff]/40">
           Model: AST-Copilot-v2
@@ -79,7 +80,7 @@ export const AiConsoleView: React.FC<AiConsoleViewProps> = ({ onApplyRefactor })
                 <span className="material-symbols-outlined text-xs">
                   {m.sender === 'ai' ? 'smart_toy' : 'person'}
                 </span>
-                <span>{m.sender === 'ai' ? 'AI Domain Architect' : 'You'}</span>
+                <span>{m.sender === 'ai' ? 'Arquitecto de dominio IA' : es.ai.you}</span>
               </div>
               <p>{m.text}</p>
             </div>
@@ -88,14 +89,14 @@ export const AiConsoleView: React.FC<AiConsoleViewProps> = ({ onApplyRefactor })
           {isAnalyzing && (
             <div className="p-3 bg-[#1c2028] border border-[#3c4a42] flex items-center gap-2 text-xs text-[#4edea3]">
               <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
-              <span>Sintetizando cambios en el AST y generando código JPA...</span>
+              <span>{es.ai.analyzing}</span>
             </div>
           )}
         </div>
 
         {/* Quick Prompts */}
         <div className="space-y-2">
-          <span className="text-[10px] uppercase text-[#86948a] font-bold">Sugerencias Rápidas:</span>
+          <span className="text-[10px] uppercase text-[#86948a] font-bold">{es.ai.quickSuggestions}:</span>
           <div className="flex flex-wrap gap-1.5">
             {quickPrompts.map((p, idx) => (
               <button
@@ -121,7 +122,7 @@ export const AiConsoleView: React.FC<AiConsoleViewProps> = ({ onApplyRefactor })
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Pide una modificación de arquitectura (ej: Agregar cupones, normalizar tabla de pagos)..."
+            placeholder={es.ai.placeholder}
             className="flex-1 bg-[#0a0e16] border border-[#3c4a42] px-3 py-2 text-xs text-white focus:outline-none focus:border-[#4edea3]"
           />
           <button
@@ -129,7 +130,7 @@ export const AiConsoleView: React.FC<AiConsoleViewProps> = ({ onApplyRefactor })
             className="px-4 py-2 bg-[#4edea3] text-black font-bold text-xs uppercase flex items-center gap-1.5 hover:brightness-110 active:scale-95 transition-all"
           >
             <span className="material-symbols-outlined text-xs">send</span>
-            <span>Enviar</span>
+            <span>{es.ai.send}</span>
           </button>
         </form>
       </div>

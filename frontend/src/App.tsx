@@ -76,7 +76,7 @@ export default function App() {
     if (!project || !id) return;
     const sequence = ++saveSequenceRef.current;
     try {
-      const saved = await diagramApi.update(project.id, id, createDiagramDocument(nextName.trim() || 'Untitled diagram', nextClasses, nextRelationships, id));
+      const saved = await diagramApi.update(project.id, id, createDiagramDocument(nextName.trim() || 'Diagrama sin título', nextClasses, nextRelationships, id));
       if (sequence === saveSequenceRef.current && activeProjectRef.current?.id === project.id && diagramIdRef.current === id) {
         applyDocument(saved);
         setPersistenceStatus('saved');
@@ -139,7 +139,7 @@ export default function App() {
     setIsDocumentLoading(true);
     setPersistenceStatus('saving');
     try {
-      const saved = await diagramApi.create(project.id, createDiagramDocument('Untitled diagram', [], []));
+      const saved = await diagramApi.create(project.id, createDiagramDocument('Diagrama sin título', [], []));
       applyDocument(saved);
       setPersistenceStatus('saved');
       await refreshDiagrams(project.id);

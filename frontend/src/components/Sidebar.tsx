@@ -1,5 +1,6 @@
 import React from 'react';
 import { ActiveView } from '../types';
+import { es } from '../i18n/es';
 
 interface SidebarProps {
   activeView: ActiveView;
@@ -15,31 +16,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     {
       id: 'uml-canvas' as ActiveView,
-      label: 'UML Class Diagram',
+      label: es.navigation.umlCanvas,
       icon: 'account_tree',
       badge: null
     },
     {
       id: 'backend-db-generator' as ActiveView,
-      label: 'Entity ERD & DDL',
+      label: es.navigation.backend,
       icon: 'database',
       badge: null
     },
     {
       id: 'git-diff-versions' as ActiveView,
-      label: 'Branch & Schema Diff',
+      label: es.navigation.diff,
       icon: 'history_toggle_off',
       badge: null
     },
     {
       id: 'team-room-live' as ActiveView,
-      label: 'Collaborative Session',
+      label: 'Sesión colaborativa',
       icon: 'groups',
       badge: null
     },
     {
       id: 'ai-architect-console' as ActiveView,
-      label: 'AI Architect Console',
+      label: es.navigation.ai,
       icon: 'auto_awesome',
       iconColor: 'text-[#d0bcff]',
       badge: 'AI'
@@ -50,8 +51,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside className="fixed left-0 top-16 bottom-0 w-64 bg-[#0a0e16] border-r border-[#3c4a42] z-40 flex flex-col justify-between overflow-y-auto">
       <div className="p-3">
         <div className="flex items-center justify-between px-1.5 py-1 mb-2 text-[#bbcabf]">
-          <span className="text-[10px] uppercase tracking-wider font-mono font-bold">Project Explorer</span>
-          <span className="material-symbols-outlined text-sm cursor-pointer hover:text-[#dfe2ee]" title="Explorer Settings">
+          <span className="text-[10px] uppercase tracking-wider font-mono font-bold">{es.navigation.projectExplorer}</span>
+          <span className="material-symbols-outlined text-sm cursor-pointer hover:text-[#dfe2ee]" title={es.navigation.explorerSettings} aria-label={es.navigation.explorerSettings}>
             tune
           </span>
         </div>

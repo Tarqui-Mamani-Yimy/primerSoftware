@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { UMLClassNode, JpaStrategy, CodeFile } from '../../types';
 import { generateAllCodeFiles } from '../../data/codeGenerator';
 import JSZip from 'jszip';
+import { es } from '../../i18n/es';
 
 interface BackendGeneratorViewProps {
   classes: UMLClassNode[];
@@ -182,7 +183,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <span className="inline-block w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></span>
-            <span className="text-[10px] text-[#4edea3] tracking-widest uppercase font-bold">AST Engine Synced</span>
+            <span className="text-[10px] text-[#4edea3] tracking-widest uppercase font-bold">{es.generator.synced}</span>
           </div>
           <span className="text-xs text-[#bbcabf]">
             Model: <span className="text-[#4cd7f6]">E-Commerce Domain (order_lifecycle.uml)</span>
@@ -192,13 +193,13 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-[#bbcabf] uppercase font-bold">Target Stack</span>
+            <span className="text-[10px] text-[#bbcabf] uppercase font-bold">{es.generator.targetStack}</span>
             <span className="text-[10px] px-2 py-0.5 bg-[#262a33] text-[#4edea3] font-bold">Java 21</span>
             <span className="text-[10px] px-2 py-0.5 bg-[#262a33] text-[#4cd7f6] font-bold">Spring Boot 3.2</span>
             <span className="text-[10px] px-2 py-0.5 bg-[#262a33] text-[#d0bcff] font-bold">PostgreSQL 16</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-[#bbcabf] uppercase font-bold">Build System</span>
+            <span className="text-[10px] text-[#bbcabf] uppercase font-bold">{es.generator.buildSystem}</span>
             <span className="text-[10px] px-1.5 py-0.5 bg-[#10b981] text-[#00422b] font-bold">Maven v3.9</span>
           </div>
         </div>
@@ -213,7 +214,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
             <div className="px-4 py-3 bg-[#1c2028] border-b border-[#3c4a42] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-sm text-[#4cd7f6]">account_tree</span>
-                <span className="font-heading text-sm text-[#dfe2ee] uppercase tracking-tight font-bold">Artifact Tree</span>
+                <span className="font-heading text-sm text-[#dfe2ee] uppercase tracking-tight font-bold">{es.generator.artifactTree}</span>
               </div>
               <span className="text-[10px] px-1.5 py-0.5 bg-[#31353e] text-[#4cd7f6] font-mono font-bold">24 Files</span>
             </div>
@@ -222,7 +223,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
             <div className="p-2.5 bg-[#0a0e16] border-b border-[#3c4a42]">
               <div className="p-2.5 bg-[#1c2028] border border-[#3c4a42]">
                 <div className="flex items-center justify-between mb-1.5 font-mono">
-                  <span className="text-[10px] text-[#bbcabf] uppercase tracking-wider font-bold">JPA Inheritance Strategy</span>
+                  <span className="text-[10px] text-[#bbcabf] uppercase tracking-wider font-bold">{es.generator.inheritanceStrategy}</span>
                   <span className="material-symbols-outlined text-xs text-[#4edea3] cursor-pointer" title="Inferred from polymorphic UML nodes (Payment -> CreditCardPayment, StripePayment)">
                     info
                   </span>
@@ -469,7 +470,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
                   <span className={`material-symbols-outlined text-xs ${copied ? 'text-[#4edea3]' : 'text-[#4cd7f6]'}`}>
                     {copied ? 'done' : 'content_copy'}
                   </span>
-                  <span>{copied ? '¡Copiado!' : 'Copiar al Portapapeles'}</span>
+                  <span>{copied ? `¡${es.generator.copied}!` : es.generator.copy}</span>
                 </button>
 
                 <button
@@ -479,7 +480,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
                   <span className={`material-symbols-outlined text-xs text-[#4edea3] ${syncing ? 'animate-spin' : ''}`}>
                     sync
                   </span>
-                  <span>{syncing ? 'Sincronizando...' : 'Sync Workspace'}</span>
+                  <span>{syncing ? 'Sincronizando…' : es.generator.synchronize}</span>
                 </button>
 
                 <button
