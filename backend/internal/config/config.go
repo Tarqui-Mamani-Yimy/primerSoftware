@@ -4,8 +4,13 @@
 package config
 
 import (
+	"bufio"
+	"errors"
+	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -32,6 +37,7 @@ type Config struct {
 
 // Load reads the environment, applying the documented defaults.
 func Load() Config {
+	loadDotEnv()
 	return Config{
 		DatabaseURL:       normalizeDatabaseURL(os.Getenv("DATABASE_URL")),
 		DatabaseUser:      firstNonEmpty(os.Getenv("DATABASE_USERNAME"), "postgres"),
@@ -42,6 +48,71 @@ func Load() Config {
 		ServerPort:        firstNonEmpty(os.Getenv("SERVER_PORT"), "8080"),
 		CORSAllowedOrigin: firstNonEmpty(os.Getenv("CORS_ALLOWED_ORIGIN"), os.Getenv("FRONTEND_URL"), "http://localhost:3000"),
 	}
+}
+
+func loadDotEnv() {
+	paths := []string{".env", filepath.Join("backend", ".env")}
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			panic(fmt.Errorf("config: open %s: %w", path, err))
+		}
+		if err := readDotEnv(file); err != nil {
+			_ = file.Close()
+			panic(fmt.Errorf("config: read %s: %w", path, err))
+		}
+		if err := file.Close(); err != nil {
+			panic(fmt.Errorf("config: close %s: %w", path, err))
+		}
+		return
+	}
+}
+
+func readDotEnv(file io.Reader) error {
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		name, value, ok := strings.Cut(line, "=")
+		if !ok || !validEnvName(name) {
+			return fmt.Errorf("invalid .env entry")
+		}
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+			value = value[1 : len(value)-1]
+		}
+		if _, exists := os.LookupEnv(name); !exists {
+			if err := os.Setenv(name, value); err != nil {
+				return fmt.Errorf("set %s: %w", name, err)
+			}
+		}
+	}
+	return scanner.Err()
+}
+
+func validEnvName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for index, char := range name {
+		isLetter := (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z')
+		isDigit := char >= '0' && char <= '9'
+		if !isLetter && !isDigit && char != '_' {
+			return false
+		}
+		if index == 0 && isDigit {
+			return false
+		}
+	}
+	return true
 }
 
 // EffectiveDatabaseURL returns DATABASE_URL when set; otherwise it builds a
