@@ -7,6 +7,7 @@ interface ToolboxProps {
   selectedClassId: string;
   onSelectClass: (id: string) => void;
   onAddClass: (type: Stereotype) => void;
+  onAddAssociationClass: () => void;
   onSelectRelationshipType: (type: RelationshipType | null) => void;
   activeRelationshipType: RelationshipType | null;
   zoomLevel: number;
@@ -17,6 +18,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   selectedClassId,
   onSelectClass,
   onAddClass,
+  onAddAssociationClass,
   onSelectRelationshipType,
   activeRelationshipType,
   zoomLevel
@@ -61,7 +63,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
         <div>
           <div className="px-1 py-0.5 flex items-center justify-between text-[#bbcabf]">
             <span className="text-[10px] uppercase tracking-widest font-mono font-bold">{es.canvas.classifiers}</span>
-            <span className="text-[#4edea3] font-mono text-[10px]">[5]</span>
+            <span className="text-[#4edea3] font-mono text-[10px]">[6]</span>
           </div>
 
           <div className="grid grid-cols-2 gap-1.5 mt-1.5 font-mono text-xs">
@@ -108,6 +110,15 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             >
               <span className="w-4 h-4 bg-[#10b981]/20 text-[#4edea3] flex items-center justify-center font-bold text-[10px]">R</span>
               <span className="group-hover:text-[#4edea3]">{es.canvas.valueObject}</span>
+            </button>
+
+            <button
+              onClick={onAddAssociationClass}
+              className="col-span-2 flex items-center gap-2 p-1.5 bg-[#1c2028] hover:bg-[#262a33] text-[#dfe2ee] text-left transition-colors group border border-[#3c4a42]"
+              title="Agregar una clase de asociación"
+            >
+              <span className="w-4 h-4 bg-[#c792ea]/20 text-[#c792ea] flex items-center justify-center font-bold text-[10px]">AC</span>
+              <span className="group-hover:text-[#c792ea]">{es.canvas.associationClass}</span>
             </button>
           </div>
         </div>

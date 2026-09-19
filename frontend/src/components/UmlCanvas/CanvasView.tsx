@@ -20,6 +20,7 @@ interface CanvasViewProps {
   onFinishNodeDrag: () => void;
   onPersistChange: () => void;
   onAddClass: (type: Stereotype) => void;
+  onAddAssociationClass: () => void;
   onAddRelationship: (relationship: UMLRelationship) => void;
   onDeleteClass: (id: string) => void;
   onSwitchToBackend: () => void;
@@ -184,7 +185,7 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
   const resetViewport = () => { setZoom(1); setPan({ x: 80, y: 80 }); };
 
   return <div className="relative flex h-[calc(100vh-4rem)] min-w-0 bg-[#0a0e16]">
-    <Toolbox classes={props.classes} selectedClassId={props.selectedClassId} onSelectClass={(id) => { props.onSelectRelationship(''); props.onSelectClass(id); }} onAddClass={props.onAddClass} onSelectRelationshipType={selectRelationshipType} activeRelationshipType={relationshipType} zoomLevel={zoom} />
+    <Toolbox classes={props.classes} selectedClassId={props.selectedClassId} onSelectClass={(id) => { props.onSelectRelationship(''); props.onSelectClass(id); }} onAddClass={props.onAddClass} onAddAssociationClass={props.onAddAssociationClass} onSelectRelationshipType={selectRelationshipType} activeRelationshipType={relationshipType} zoomLevel={zoom} />
     <section ref={viewportRef} onWheel={handleWheel} onPointerDown={handleCanvasPointerDown} onPointerMove={handlePointerMove} onPointerUp={endPointerAction} onPointerCancel={endPointerAction} className="relative h-full min-w-0 flex-1 overflow-hidden touch-none cursor-grab active:cursor-grabbing" aria-label={es.canvas.interactiveCanvas}>
       <div className="absolute left-4 top-4 z-20 flex items-center gap-2 border border-[#3c4a42] bg-[#262a33] p-2 font-mono text-xs shadow-lg">
         <div className="relative border-r border-[#3c4a42] pr-2">
@@ -267,9 +268,32 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
               </g>
             );
           })}
+          {props.classes.flatMap((umlClass) => {
+            if (!umlClass.isAssociationClass || !umlClass.attachedRelationshipId) return [];
+            const relationship = props.relationships.find((item) => item.id === umlClass.attachedRelationshipId);
+            if (!relationship) return [];
+            const source = props.classes.find((item) => item.id === relationship.sourceId);
+            const target = props.classes.find((item) => item.id === relationship.targetId);
+            if (!source || !target) return [];
+            const edge = clipEdgeToNodeBorders(
+              { x: source.x, y: source.y, width: nodeWidth(source), height: nodeHeight(source) },
+              { x: target.x, y: target.y, width: nodeWidth(target), height: nodeHeight(target) },
+            );
+            const mid = pointAlongEdge(edge, 0.5);
+            const attach = clipEdgeToNodeBorders(
+              { x: umlClass.x, y: umlClass.y, width: nodeWidth(umlClass), height: nodeHeight(umlClass) },
+              { x: mid.x, y: mid.y, width: 1, height: 1 },
+            );
+            return [(
+              <g key={umlClass.id} style={{ pointerEvents: 'none' }}>
+                <line x1={attach.x1} y1={attach.y1} x2={attach.x2} y2={attach.y2} stroke="#c792ea" strokeWidth={1.5} strokeDasharray="4 4" />
+                <circle cx={mid.x} cy={mid.y} r={3} fill="#c792ea" />
+              </g>
+            )];
+          })}
         </svg>
         {props.classes.map((umlClass) => <button key={umlClass.id} type="button" onPointerDown={(event) => handleNodePointerDown(event, umlClass)} onClick={(event) => { event.stopPropagation(); selectNode(umlClass.id); }} className={`absolute z-10 overflow-hidden border bg-[#1c2028] text-left font-mono text-[11px] text-[#dfe2ee] shadow-lg transition-colors cursor-move ${umlClass.id === props.selectedClassId ? 'border-2 border-[#4edea3]' : pendingSourceId === umlClass.id ? 'border-2 border-[#4cd7f6]' : 'border-[#3c4a42] hover:border-[#4cd7f6]'}`} style={{ left: umlClass.x, top: umlClass.y, width: nodeWidth(umlClass), minHeight: nodeHeight(umlClass) }}>
-          <div className="border-b border-[#3c4a42] px-3 py-2 text-center text-[#4edea3]">{umlClass.stereotype}<br /><strong>{umlClass.name}</strong></div>
+          <div className="border-b border-[#3c4a42] px-3 py-2 text-center text-[#4edea3]">{umlClass.stereotype}<br /><strong>{umlClass.name}{umlClass.isAssociationClass && <span className="ml-1 inline-flex items-center justify-center rounded-sm border border-[#c792ea] bg-[#c792ea]/20 px-1 align-middle text-[9px] font-bold text-[#c792ea]" title="Clase de asociación">AC</span>}</strong></div>
           <div className="border-b border-[#3c4a42] px-3 py-2">{umlClass.attributes.map((attribute) => <div key={attribute.id}>{attribute.visibility} {attribute.name}: {attribute.type}</div>)}</div>
           <div className="px-3 py-2">{umlClass.methods.map((method) => <div key={method.id}>{method.visibility} {method.name}: {method.returnType}</div>)}</div>
         </button>)}
@@ -299,7 +323,7 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
         onClose={() => props.onSelectRelationship('')}
       />
     ) : selected ? (
-      <Inspector selectedClass={selected} onUpdateClass={(umlClass) => { props.onUpdateClass(umlClass); props.onPersistChange(); }} onClose={() => props.onSelectClass('')} onGenerateCode={props.onSwitchToBackend} />
+      <Inspector selectedClass={selected} onUpdateClass={(umlClass) => { props.onUpdateClass(umlClass); props.onPersistChange(); }} onClose={() => props.onSelectClass('')} onGenerateCode={props.onSwitchToBackend} classes={props.classes} relationships={props.relationships} />
     ) : null}
   </div>;
 };

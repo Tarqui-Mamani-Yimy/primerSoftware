@@ -339,6 +339,20 @@ export default function App() {
     relationshipsRef.current = next;
     setRelationships(next);
     if (selectedRelationshipId === id) setSelectedRelationshipId('');
+    // A deleted relationship invalidates any association class attached to it,
+    // so clear the stale reference before saving (the server rejects it).
+    let clearedAttached = false;
+    const nextClasses = classesRef.current.map((umlClass) => {
+      if (umlClass.attachedRelationshipId === id) {
+        clearedAttached = true;
+        return { ...umlClass, attachedRelationshipId: undefined };
+      }
+      return umlClass;
+    });
+    if (clearedAttached) {
+      classesRef.current = nextClasses;
+      setClasses(nextClasses);
+    }
     scheduleSave(classesRef.current, next);
   };
 
@@ -377,15 +391,49 @@ export default function App() {
     setSelectedClassId(newId);
   };
 
+  const handleAddAssociationClass = () => {
+    const newId = `association_${Date.now()}`;
+    const newClass: UMLClassNode = {
+      id: newId,
+      name: `AssocClass${classes.length + 1}`,
+      stereotype: '«Entity»',
+      package: 'com.nexus.orders',
+      tableBinding: `t_assoc_class${classes.length + 1}`,
+      x: 150 + (classes.length % 3) * 60,
+      y: 200 + (classes.length % 3) * 50,
+      width: 220,
+      attributes: [
+        { id: `id_${Date.now()}`, name: 'id', type: 'UUID', visibility: '+', isPk: true, annotations: ['@Id'] },
+        { id: `name_${Date.now()}`, name: 'name', type: 'String', visibility: '+', annotations: ['@NotNull'] }
+      ],
+      methods: [
+        { id: `meth_${Date.now()}`, name: 'validate()', returnType: 'boolean', visibility: '+' }
+      ],
+      isAssociationClass: true
+    };
+    const next = [...classesRef.current, newClass];
+    classesRef.current = next;
+    setClasses(next);
+    scheduleSave(next, relationshipsRef.current);
+    setSelectedRelationshipId('');
+    setSelectedClassId(newId);
+  };
+
   const handleDeleteClass = (id: string) => {
     if (classes.length <= 1) return;
     const nextClasses = classesRef.current.filter(c => c.id !== id);
     const nextRelationships = relationshipsRef.current.filter(r => r.sourceId !== id && r.targetId !== id);
-    classesRef.current = nextClasses;
+    const remainingRelIds = new Set(nextRelationships.map(r => r.id));
+    const nextClassesFixed = nextClasses.map((umlClass) =>
+      umlClass.attachedRelationshipId && !remainingRelIds.has(umlClass.attachedRelationshipId)
+        ? { ...umlClass, attachedRelationshipId: undefined }
+        : umlClass,
+    );
+    classesRef.current = nextClassesFixed;
     relationshipsRef.current = nextRelationships;
-    setClasses(nextClasses);
+    setClasses(nextClassesFixed);
     setRelationships(nextRelationships);
-    scheduleSave(nextClasses, nextRelationships);
+    scheduleSave(nextClassesFixed, nextRelationships);
     if (selectedClassId === id) {
       const remaining = classesRef.current.filter(c => c.id !== id);
       if (remaining.length > 0) setSelectedClassId(remaining[0].id);
@@ -591,6 +639,7 @@ export default function App() {
               onFinishNodeDrag={handleFinishNodeDrag}
               onPersistChange={() => scheduleSave()}
               onAddClass={handleAddClass}
+              onAddAssociationClass={handleAddAssociationClass}
               onAddRelationship={handleAddRelationship}
               onDeleteClass={handleDeleteClass}
               onSwitchToBackend={() => setActiveView('backend-db-generator')}

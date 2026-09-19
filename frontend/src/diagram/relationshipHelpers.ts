@@ -31,6 +31,9 @@ export const validateRelationshipCreation = (
   if (existing.some((r) => r.sourceId === sourceId && r.targetId === targetId && r.type === type)) {
     return { ok: false, reason: 'That relationship already exists between these classes.' };
   }
+  if (source?.isAssociationClass || target?.isAssociationClass) {
+    return { ok: false, reason: 'An association class cannot be a relationship endpoint: pick a regular class.' };
+  }
   if (type === 'realization') {
     const sourceOk = source ? source.stereotype !== '«Interface»' && source.stereotype !== '«Enum»' : true;
     const targetOk = target ? target.stereotype === '«Interface»' : true;

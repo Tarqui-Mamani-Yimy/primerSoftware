@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
-import { UMLClassNode, UMLAttribute, UMLMethod, Stereotype } from '../../types';
+import { UMLClassNode, UMLAttribute, UMLMethod, Stereotype, UMLRelationship } from '../../types';
+import { es } from '../../i18n/es';
 
 interface InspectorProps {
   selectedClass: UMLClassNode;
   onUpdateClass: (updated: UMLClassNode) => void;
   onClose: () => void;
   onGenerateCode: () => void;
+  classes: UMLClassNode[];
+  relationships: UMLRelationship[];
 }
 
 export const Inspector: React.FC<InspectorProps> = ({
   selectedClass,
   onUpdateClass,
   onClose,
-  onGenerateCode
+  onGenerateCode,
+  classes,
+  relationships
 }) => {
   const [saveFeedback, setSaveFeedback] = useState(false);
   const [showNewAttrModal, setShowNewAttrModal] = useState(false);
@@ -76,6 +81,21 @@ export const Inspector: React.FC<InspectorProps> = ({
   const handleSave = () => {
     setSaveFeedback(true);
     setTimeout(() => setSaveFeedback(false), 1800);
+  };
+
+  // An association class attaches to a relationship whose endpoints are both
+  // ordinary classes (the association class itself can never be an endpoint).
+  const eligibleRelationships = relationships.filter((relationship) => {
+    if (relationship.sourceId === selectedClass.id || relationship.targetId === selectedClass.id) return false;
+    const source = classes.find((c) => c.id === relationship.sourceId);
+    const target = classes.find((c) => c.id === relationship.targetId);
+    return Boolean(source && target && !source.isAssociationClass && !target.isAssociationClass);
+  });
+
+  const relationshipLabel = (relationship: UMLRelationship): string => {
+    const source = classes.find((c) => c.id === relationship.sourceId);
+    const target = classes.find((c) => c.id === relationship.targetId);
+    return `${source?.name ?? relationship.sourceId} — ${target?.name ?? relationship.targetId} (${relationship.type})`;
   };
 
   return (
@@ -154,6 +174,45 @@ export const Inspector: React.FC<InspectorProps> = ({
               />
             </div>
           </div>
+        </div>
+
+        {/* Association Class */}
+        <div className="space-y-2 bg-[#1c2028] p-2.5 border border-[#3c4a42]">
+          <div className="flex items-center justify-between pb-1 border-b border-[#3c4a42]">
+            <span className="text-[10px] uppercase font-bold text-[#bbcabf]">{es.canvas.associationClass}</span>
+            <span className="material-symbols-outlined text-xs text-[#c792ea]">alt_route</span>
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(selectedClass.isAssociationClass)}
+              onChange={(e) => handleUpdateField('isAssociationClass', e.target.checked)}
+              className="accent-[#c792ea]"
+            />
+            <span className="text-xs text-[#dfe2ee]">{es.canvas.associationClassMark}</span>
+          </label>
+
+          {selectedClass.isAssociationClass && (
+            <div>
+              <label className="text-[9px] uppercase text-[#bbcabf] block mb-1">{es.canvas.associationClassAttached}</label>
+              <select
+                className="w-full bg-[#0a0e16] px-2 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#c792ea] focus:outline-none"
+                value={selectedClass.attachedRelationshipId ?? ''}
+                onChange={(e) => handleUpdateField('attachedRelationshipId', e.target.value || undefined)}
+              >
+                <option value="">{es.canvas.associationClassNone}</option>
+                {eligibleRelationships.map((relationship) => (
+                  <option key={relationship.id} value={relationship.id}>
+                    {relationshipLabel(relationship)}
+                  </option>
+                ))}
+              </select>
+              {eligibleRelationships.length === 0 && (
+                <p className="mt-1 text-[10px] text-[#bbcabf]">{es.canvas.associationClassHint}</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Field / Attribute List Editor */}
