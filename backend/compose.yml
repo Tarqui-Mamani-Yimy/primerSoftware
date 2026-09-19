@@ -1,22 +1,14 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: uml-arch
+    container_name: umlSoft
+    restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-uml_architect}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: yimy
+      POSTGRES_PASSWORD: tarqui231
+      POSTGRES_DB: softDB
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
     volumes:
-      - uml_architect_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-
-volumes:
-  uml_architect_postgres_data:
-    name: uml_architect_postgres_data
+      - ./database/postgres_data:/var/lib/postgresql/data
+      - ./database/base.sql:/docker-entrypoint-initdb.d/base.sql

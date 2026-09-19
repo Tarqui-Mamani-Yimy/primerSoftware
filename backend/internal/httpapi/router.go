@@ -1,0 +1,399 @@
+// Package httpapi serves the /api/v1 contract (GOBE-02): opaque-token login,
+// Bearer authentication, membership-gated project/diagram CRUD with
+// versioning, uniform {"message"} errors, and single-origin CORS mirroring
+// SecurityConfig.
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strconv"
+
+	"github.com/ai-uml-architect/gobackend/internal/domain"
+	"github.com/ai-uml-architect/gobackend/internal/service"
+)
+
+// Route describes one public API endpoint.
+type Route struct {
+	Method  string
+	Pattern string
+}
+
+// Routes returns the full public /api/v1 route table. Order is stable.
+func Routes() []Route {
+	return []Route{
+		{Method: http.MethodPost, Pattern: "/api/v1/auth/login"},
+		{Method: http.MethodGet, Pattern: "/api/v1/projects"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/join"},
+		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams"},
+		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}"},
+		{Method: http.MethodPut, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}"},
+		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore"},
+	}
+}
+
+// loginPattern is the only route that does not require a Bearer token,
+// mirroring SecurityConfig's permitAll for POST /api/v1/auth/login.
+const loginPattern = "/api/v1/auth/login"
+
+// Server serves the API over a Service with a configured CORS origin.
+type Server struct {
+	services *service.Service
+	origin   string
+}
+
+// NewServer returns a Server. corsOrigin mirrors app.cors.allowed-origin
+// (single allowed origin).
+func NewServer(svc *service.Service, corsOrigin string) *Server {
+	return &Server{services: svc, origin: corsOrigin}
+}
+
+// NewMux preserves the GOBE-01 constructor for the route-table harness: the
+// route table, Bearer scheme, and login permitAll behave identically, while
+// authenticated routes 401 without a resolvable token (no store attached).
+func NewMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	for _, route := range Routes() {
+		mux.HandleFunc(route.Method+" "+route.Pattern, stub)
+	}
+	return mux
+}
+
+func stub(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != loginPattern && !isBearer(r.Header.Get("Authorization")) {
+		writeError(w, http.StatusUnauthorized, "Missing or invalid Authorization header")
+		return
+	}
+	writeError(w, http.StatusNotImplemented, "not implemented (GOBE-01 skeleton stub)")
+}
+
+type ctxKey struct{}
+
+// Handler builds the full handler chain: CORS -> routes (+ auth per route).
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(http.MethodPost+" "+loginPattern, s.handleLogin)
+	mux.HandleFunc(http.MethodGet+" /api/v1/projects", s.withAuth(s.handleAssigned))
+	mux.HandleFunc(http.MethodPost+" /api/v1/projects", s.withAuth(s.handleCreateProject))
+	mux.HandleFunc(http.MethodPost+" /api/v1/projects/join", s.withAuth(s.handleJoinProject))
+	mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams", s.withAuth(s.handleListDiagrams))
+	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams", s.withAuth(s.handleCreateDiagram))
+	mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}", s.withAuth(s.handleGetDiagram))
+	mux.HandleFunc(http.MethodPut+" /api/v1/projects/{projectId}/diagrams/{id}", s.withAuth(s.handleUpdateDiagram))
+	mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}/versions", s.withAuth(s.handleListVersions))
+	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore", s.withAuth(s.handleRestore))
+	return s.withCORS(mux)
+}
+
+// withAuth mirrors BearerFilter + the authenticated() rule: only
+// "Bearer <token>" is accepted, the token must resolve to a live user, and
+// anything else is 401 with the uniform envelope.
+func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		header := r.Header.Get("Authorization")
+		if !isBearer(header) {
+			writeError(w, http.StatusUnauthorized, "Missing or invalid Authorization header")
+			return
+		}
+		userID := ""
+		var err error
+		if s.services != nil {
+			userID, err = s.services.Authenticate(r.Context(), header[len("Bearer "):])
+		}
+		if err != nil || userID == "" {
+			writeError(w, http.StatusUnauthorized, "Invalid or expired token")
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, userID)))
+	}
+}
+
+func userOf(r *http.Request) string {
+	id, _ := r.Context().Value(ctxKey{}).(string)
+	return id
+}
+
+// projectOf extracts and validates the projectId path value, mirroring
+// Spring's UUID @PathVariable conversion (malformed -> 400).
+func projectOf(w http.ResponseWriter, r *http.Request) (string, bool) {
+	projectID := r.PathValue("projectId")
+	if !isValidUUID(projectID) {
+		writeError(w, http.StatusBadRequest, "Invalid project id: "+projectID)
+		return "", false
+	}
+	return projectID, true
+}
+
+// diagramOf validates the diagram id path value (malformed -> 400).
+func diagramOf(w http.ResponseWriter, r *http.Request) (string, bool) {
+	diagramID := r.PathValue("id")
+	if !isValidUUID(diagramID) {
+		writeError(w, http.StatusBadRequest, "Invalid diagram id: "+diagramID)
+		return "", false
+	}
+	return diagramID, true
+}
+
+// mapError translates service errors to the ApiExceptionHandler statuses:
+// InvalidCredentials -> 401, AccessDenied -> 403, NoSuchElement -> 404,
+// IllegalArgument/validation -> 400. It reports whether it handled err.
+func mapError(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	switch e := err.(type) {
+	case service.CredentialsError:
+		writeError(w, http.StatusUnauthorized, e.Error())
+	case service.ForbiddenError:
+		writeError(w, http.StatusForbidden, e.Error())
+	case service.NotFoundError:
+		writeError(w, http.StatusNotFound, e.Message)
+	case service.ValidationError:
+		writeError(w, http.StatusBadRequest, e.Message)
+	default:
+		writeError(w, http.StatusInternalServerError, "Request failed")
+	}
+	return true
+}
+
+func (s *Server) handleAssigned(w http.ResponseWriter, r *http.Request) {
+	out, err := s.services.AssignedProjects(r.Context(), userOf(r))
+	if mapError(w, err) {
+		return
+	}
+	if out == nil {
+		out = []domain.ProjectResponse{}
+	}
+	s.writeJSON(w, http.StatusOK, out)
+}
+
+// handleCreateProject serves POST /api/v1/projects: the authenticated user
+// becomes OWNER and receives the generated classroom access code with the
+// created project (201).
+func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
+	var input domain.CreateProjectRequest
+	if !decode(w, r, &input) {
+		return
+	}
+	out, err := s.services.CreateProject(r.Context(), userOf(r), input.Name, input.Description)
+	if mapError(w, err) {
+		return
+	}
+	s.writeJSON(w, http.StatusCreated, out)
+}
+
+// handleJoinProject serves POST /api/v1/projects/join: idempotent membership
+// by code, returning the same list item shape as GET /api/v1/projects.
+func (s *Server) handleJoinProject(w http.ResponseWriter, r *http.Request) {
+	var input domain.JoinProjectRequest
+	if !decode(w, r, &input) {
+		return
+	}
+	out, err := s.services.JoinProject(r.Context(), userOf(r), input.AccessCode)
+	if mapError(w, err) {
+		return
+	}
+	s.writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleListDiagrams(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := projectOf(w, r)
+	if !ok {
+		return
+	}
+	out, err := s.services.ListDiagrams(r.Context(), projectID, userOf(r))
+	if mapError(w, err) {
+		return
+	}
+	if out == nil {
+		out = []domain.DiagramSummary{}
+	}
+	s.writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleCreateDiagram(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := projectOf(w, r)
+	if !ok {
+		return
+	}
+	var raw domain.DiagramDocument
+	if !decode(w, r, &raw) {
+		return
+	}
+	doc, err := s.services.CreateDiagram(r.Context(), projectID, userOf(r), raw)
+	if mapError(w, err) {
+		return
+	}
+	s.writeJSON(w, http.StatusCreated, doc)
+}
+
+func (s *Server) handleGetDiagram(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := projectOf(w, r)
+	if !ok {
+		return
+	}
+	diagramID, ok := diagramOf(w, r)
+	if !ok {
+		return
+	}
+	doc, err := s.services.GetDiagram(r.Context(), projectID, diagramID, userOf(r))
+	if mapError(w, err) {
+		return
+	}
+	s.writeJSON(w, http.StatusOK, doc)
+}
+
+func (s *Server) handleUpdateDiagram(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := projectOf(w, r)
+	if !ok {
+		return
+	}
+	diagramID, ok := diagramOf(w, r)
+	if !ok {
+		return
+	}
+	var raw domain.DiagramDocument
+	if !decode(w, r, &raw) {
+		return
+	}
+	doc, err := s.services.UpdateDiagram(r.Context(), projectID, diagramID, userOf(r), raw)
+	if mapError(w, err) {
+		return
+	}
+	s.writeJSON(w, http.StatusOK, doc)
+}
+
+func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := projectOf(w, r)
+	if !ok {
+		return
+	}
+	diagramID, ok := diagramOf(w, r)
+	if !ok {
+		return
+	}
+	out, err := s.services.ListVersions(r.Context(), projectID, diagramID, userOf(r))
+	if mapError(w, err) {
+		return
+	}
+	if out == nil {
+		out = []domain.DiagramVersion{}
+	}
+	s.writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := projectOf(w, r)
+	if !ok {
+		return
+	}
+	diagramID, ok := diagramOf(w, r)
+	if !ok {
+		return
+	}
+	version := r.PathValue("version")
+	n, err := strconv.Atoi(version)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid version: "+version)
+		return
+	}
+	doc, err := s.services.RestoreDiagram(r.Context(), projectID, diagramID, userOf(r), n)
+	if mapError(w, err) {
+		return
+	}
+	s.writeJSON(w, http.StatusOK, doc)
+}
+
+// decode reads a JSON request body into v, replying with the uniform 400
+// envelope when the payload is malformed.
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	resp, err := s.services.Login(r.Context(), input.Email, input.Password)
+	if mapError(w, err) {
+		return
+	}
+	s.writeJSON(w, http.StatusOK, resp)
+}
+
+// withCORS mirrors SecurityConfig's CorsConfigurationSource: the single
+// configured origin, GET/POST/PUT/OPTIONS methods, Authorization and
+// Content-Type headers on /api/**.
+func (s *Server) withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		allowed := s.origin != "" && (origin == s.origin || origin == "")
+		if r.Method == http.MethodOptions {
+			if allowed {
+				w.Header().Set("Access-Control-Allow-Origin", s.origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if allowed && origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", s.origin)
+			w.Header().Set("Vary", "Origin")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isBearer accepts only the "Bearer <token>" scheme, mirroring BearerFilter.
+func isBearer(header string) bool {
+	const prefix = "Bearer "
+	return len(header) > len(prefix) && header[:len(prefix)] == prefix
+}
+
+// isValidUUID accepts only canonical 8-4-4-4-12 hex UUIDs, mirroring Spring's
+// UUID @PathVariable conversion.
+func isValidUUID(v string) bool {
+	if len(v) != 36 {
+		return false
+	}
+	for i := 0; i < 36; i++ {
+		c := v[i]
+		switch {
+		case i == 8 || i == 13 || i == 18 || i == 23:
+			if c != '-' {
+				return false
+			}
+		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(domain.ErrorEnvelope{Message: message})
+}
