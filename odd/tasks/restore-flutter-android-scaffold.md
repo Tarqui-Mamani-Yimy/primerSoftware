@@ -30,7 +30,8 @@ Restore the Flutter Android platform scaffold under `mobile/` so the existing mo
 ## Verification evidence
 - `flutter test` / Android build: **pending user execution** by explicit instruction; strict-TDD RED/GREEN/REFACTOR evidence is therefore unavailable.
 - Structural checks: `flutter create --platforms=android .` completed using `/home/yimy/flutter/bin/flutter`; required Gradle, wrapper, activity, resource, and manifest paths exist. The checked manifest contains both the generated Flutter application entry and `RECORD_AUDIO`; `mobile/lib/voice_transcription_service.dart` and the `whisper_cpp_flutter_plus` dependency remain present.
-- Commit evidence: `5d34031` initially created this isolated work unit; the final amended commit retains only this tracker and Android scaffold paths.
+- Commit evidence: `4170d74` created the isolated Android-scaffold work unit and retains only this tracker and Android scaffold paths.
+- Follow-up correction: normalized generated `mobile/android/gradlew.bat` from CRLF to LF without changing its logical content, so `git show --check HEAD` does not report false trailing-whitespace diagnostics.
 - RDD evidence: `gentle-ai review assess --cwd /home/yimy/proyectos/software/primer/ai-uml-architect --base-ref HEAD~1 --committed-only --json` was attempted after the commit. It did not return a tier because unrelated pre-existing untracked files require an explicit inventory declaration; no review status, consent, or retry was started.
 - Rollback boundary: revert this task tracker and the generated `mobile/android/` scaffold only.
 
