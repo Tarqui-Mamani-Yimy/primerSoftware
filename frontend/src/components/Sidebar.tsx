@@ -5,13 +5,11 @@ import { es } from '../i18n/es';
 interface SidebarProps {
   activeView: ActiveView;
   onSelectView: (view: ActiveView) => void;
-  telemetryLatency?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
   activeView, 
-  onSelectView, 
-  telemetryLatency = 'ONNX 14ms' 
+  onSelectView 
 }) => {
   const navItems = [
     {
@@ -25,25 +23,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: es.navigation.backend,
       icon: 'database',
       badge: null
-    },
-    {
-      id: 'git-diff-versions' as ActiveView,
-      label: es.navigation.diff,
-      icon: 'history_toggle_off',
-      badge: null
-    },
-    {
-      id: 'team-room-live' as ActiveView,
-      label: 'Sesión colaborativa',
-      icon: 'groups',
-      badge: null
-    },
-    {
-      id: 'ai-architect-console' as ActiveView,
-      label: es.navigation.ai,
-      icon: 'auto_awesome',
-      iconColor: 'text-[#d0bcff]',
-      badge: 'AI'
     }
   ];
 
@@ -85,21 +64,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </nav>
-      </div>
-
-      {/* Telemetry bottom badge */}
-      <div className="p-3 border-t border-[#3c4a42] bg-[#181c24]">
-        <div className="flex items-center justify-between font-mono">
-          <span className="text-[10px] text-[#bbcabf] uppercase font-bold">Telemetry</span>
-          <span className="text-xs text-[#4edea3] font-bold">{telemetryLatency}</span>
-        </div>
-        <div className="w-full bg-[#1c2028] h-1 mt-2 overflow-hidden">
-          <div className="bg-[#4edea3] h-1 w-3/4 animate-pulse"></div>
-        </div>
-        <div className="flex items-center justify-between text-[9px] text-[#86948a] font-mono mt-1.5">
-          <span>WebGPU Inference</span>
-          <span>FPS: 60.0</span>
-        </div>
       </div>
     </aside>
   );

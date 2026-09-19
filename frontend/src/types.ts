@@ -1,9 +1,6 @@
 export type ActiveView = 
   | 'uml-canvas' 
-  | 'backend-db-generator' 
-  | 'git-diff-versions' 
-  | 'team-room-live'
-  | 'ai-architect-console';
+  | 'backend-db-generator';
 
 export type Visibility = '+' | '-' | '#';
 
@@ -81,17 +78,6 @@ export interface UMLDiagramDocument {
 }
 
 export type JpaStrategy = 'JOINED' | 'SINGLE' | 'TABLE_PER';
-
-export interface Collaborator {
-  id: string;
-  name: string;
-  initials: string;
-  role: string;
-  color: string;
-  x: number;
-  y: number;
-  inspectingText?: string;
-}
 
 export interface CodeFile {
   id: string;

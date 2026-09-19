@@ -9,10 +9,6 @@ import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { CanvasView } from './components/UmlCanvas/CanvasView';
 import { BackendGeneratorView } from './components/BackendGenerator/BackendGeneratorView';
-import { GitDiffView } from './components/GitDiff/GitDiffView';
-import { TeamRoomView } from './components/TeamRoom/TeamRoomView';
-import { AiConsoleView } from './components/AiConsole/AiConsoleView';
-import { FloatingAssistant } from './components/FloatingAssistant/FloatingAssistant';
 import { LoginScreen } from './components/UserAccess/LoginScreen';
 import { ProjectDashboard } from './components/UserAccess/ProjectDashboard';
 import JSZip from 'jszip';
@@ -342,7 +338,6 @@ export default function App() {
       <Sidebar
         activeView={activeView}
         onSelectView={setActiveView}
-        telemetryLatency="ONNX 14ms"
       />
 
       {/* Main Viewport Container */}
@@ -386,26 +381,7 @@ export default function App() {
             onDownloadZip={() => handleExport('zip')}
           />
         )}
-
-        {activeView === 'git-diff-versions' && (
-          <GitDiffView />
-        )}
-
-        {activeView === 'team-room-live' && (
-          <TeamRoomView />
-        )}
-
-        {activeView === 'ai-architect-console' && (
-          <AiConsoleView />
-        )}
       </div>
-
-      {/* Floating Observer Assistant Bubble */}
-      <FloatingAssistant
-        activeView={activeView}
-        selectedClassId={selectedClassId}
-        classes={classes}
-      />
     </div>
   );
 }

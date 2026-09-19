@@ -19,7 +19,6 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
   const codeFiles = generateAllCodeFiles(classes, strategy);
   const [activeTabId, setActiveTabId] = useState<string>('order-java');
   const [copied, setCopied] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [showDdlModal, setShowDdlModal] = useState(false);
 
@@ -33,11 +32,6 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
     navigator.clipboard.writeText(activeFile.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleSync = () => {
-    setSyncing(true);
-    setTimeout(() => setSyncing(false), 1200);
   };
 
   const handleDownloadZip = async () => {
@@ -169,42 +163,6 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
 
   return (
     <div className="flex flex-col w-full min-h-[calc(100vh-4rem)] bg-[#0f131c]">
-      {/* Sub-Header Breadcrumb Bar */}
-      <div className="h-8 px-4 bg-[#181c24] border-b border-[#3c4a42] flex items-center gap-2 text-[#bbcabf] font-mono text-xs">
-        <span className="text-[#86948a] hover:text-[#dfe2ee] cursor-pointer">ecommerce-v2</span>
-        <span className="material-symbols-outlined text-xs">chevron_right</span>
-        <span className="text-[#86948a] hover:text-[#dfe2ee] cursor-pointer">models</span>
-        <span className="material-symbols-outlined text-xs">chevron_right</span>
-        <span className="text-[#4edea3] font-bold">order_lifecycle.uml</span>
-      </div>
-
-      {/* Micro Telemetry Stream Header */}
-      <div className="w-full bg-[#0a0e16] px-4 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-[#3c4a42] font-mono">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></span>
-            <span className="text-[10px] text-[#4edea3] tracking-widest uppercase font-bold">{es.generator.synced}</span>
-          </div>
-          <span className="text-xs text-[#bbcabf]">
-            Model: <span className="text-[#4cd7f6]">E-Commerce Domain (order_lifecycle.uml)</span>
-          </span>
-          <span className="text-[10px] px-1.5 py-0.5 bg-[#262a33] text-[#bbcabf]">HASH: e89f2a9c</span>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-[#bbcabf] uppercase font-bold">{es.generator.targetStack}</span>
-            <span className="text-[10px] px-2 py-0.5 bg-[#262a33] text-[#4edea3] font-bold">Java 21</span>
-            <span className="text-[10px] px-2 py-0.5 bg-[#262a33] text-[#4cd7f6] font-bold">Spring Boot 3.2</span>
-            <span className="text-[10px] px-2 py-0.5 bg-[#262a33] text-[#d0bcff] font-bold">PostgreSQL 16</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-[#bbcabf] uppercase font-bold">{es.generator.buildSystem}</span>
-            <span className="text-[10px] px-1.5 py-0.5 bg-[#10b981] text-[#00422b] font-bold">Maven v3.9</span>
-          </div>
-        </div>
-      </div>
-
       {/* Main Split-Screen Architecture Cockpit */}
       <div className="grid grid-cols-12 w-full flex-1 bg-[#0a0e16]">
         {/* Left Panel: Project Explorer & Schema Artifacts */}
@@ -216,7 +174,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
                 <span className="material-symbols-outlined text-sm text-[#4cd7f6]">account_tree</span>
                 <span className="font-heading text-sm text-[#dfe2ee] uppercase tracking-tight font-bold">{es.generator.artifactTree}</span>
               </div>
-              <span className="text-[10px] px-1.5 py-0.5 bg-[#31353e] text-[#4cd7f6] font-mono font-bold">24 Files</span>
+              <span className="text-[10px] px-1.5 py-0.5 bg-[#31353e] text-[#4cd7f6] font-mono font-bold">{codeFiles.length} Files</span>
             </div>
 
             {/* Strategy Selector Control */}
@@ -425,20 +383,6 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
               </div>
             </div>
           </div>
-
-          {/* Left Panel Bottom Quick Metric */}
-          <div className="p-3 bg-[#1c2028] m-2 border border-[#3c4a42] font-mono">
-            <div className="flex items-center justify-between text-[#bbcabf] mb-1.5">
-              <span className="text-[10px] uppercase font-bold">Schema Fidelity</span>
-              <span className="text-xs text-[#4edea3] font-bold">100%</span>
-            </div>
-            <div className="w-full bg-[#0a0e16] h-1.5 overflow-hidden">
-              <div className="bg-[#4edea3] h-full w-full"></div>
-            </div>
-            <p className="text-[11px] text-[#bbcabf] mt-1.5 leading-tight">
-              All 4 UML Classes, 6 Cardinalities &amp; 14 Attributes completely synchronized.
-            </p>
-          </div>
         </section>
 
         {/* Center-Right Panel: Multi-Tab High-Fidelity Code Studio */}
@@ -474,16 +418,6 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
                 </button>
 
                 <button
-                  onClick={handleSync}
-                  className="hidden md:flex items-center gap-1 px-3 py-1.5 bg-[#262a33] hover:bg-[#31353e] text-[#dfe2ee] text-xs font-semibold transition-colors border border-[#3c4a42]"
-                >
-                  <span className={`material-symbols-outlined text-xs text-[#4edea3] ${syncing ? 'animate-spin' : ''}`}>
-                    sync
-                  </span>
-                  <span>{syncing ? 'Sincronizando…' : es.generator.synchronize}</span>
-                </button>
-
-                <button
                   onClick={handleDownloadZip}
                   disabled={downloading}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#4edea3] text-black font-heading text-xs font-bold uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md"
@@ -492,7 +426,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
                     {downloading ? 'hourglass_top' : 'archive'}
                   </span>
                   <span>{downloading ? 'Generando ZIP...' : 'Descargar .ZIP (Maven)'}</span>
-                  <span className="text-[10px] opacity-80 font-mono">(24 Files • 48KB)</span>
+                  <span className="text-[10px] opacity-80 font-mono">({codeFiles.length} Files)</span>
                 </button>
               </div>
             </div>
@@ -553,29 +487,9 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
             </div>
           </div>
 
-          {/* Bottom Dock: Architecture Validation Diagnostic Feed */}
+          {/* Bottom Dock: DDL Settings */}
           <footer className="p-3 bg-[#1c2028] flex flex-wrap items-center justify-between gap-3 border-t border-[#3c4a42] font-mono">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1.5 px-2 py-1 bg-[#0a0e16] border border-[#3c4a42]">
-                <span className="material-symbols-outlined text-sm text-[#4edea3]">check_circle</span>
-                <span className="text-xs text-[#4edea3] font-bold">0 COMPILATION WARNINGS</span>
-              </div>
-              <div className="flex items-center gap-1 text-[#bbcabf] text-xs">
-                <span className="material-symbols-outlined text-xs text-[#4cd7f6]">verified_user</span>
-                <span>UML Bidirectional Associations verified in JPA 3.2</span>
-              </div>
-              <div className="flex items-center gap-1 text-[#bbcabf] text-xs">
-                <span className="material-symbols-outlined text-xs text-[#d0bcff]">key</span>
-                <span>All Foreign Keys &amp; Compound Indices mapped</span>
-              </div>
-            </div>
-
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-xs text-[#bbcabf]">
-                <span>Memory: <span className="text-[#4cd7f6]">182MB</span></span>
-                <span>|</span>
-                <span>Generation Latency: <span className="text-[#4edea3]">18ms</span></span>
-              </div>
               <button
                 onClick={() => setShowDdlModal(true)}
                 className="flex items-center gap-1 px-2 py-1 bg-[#262a33] hover:bg-[#31353e] text-[#bbcabf] hover:text-[#dfe2ee] text-[10px] uppercase border border-[#3c4a42]"
