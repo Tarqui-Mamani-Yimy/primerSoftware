@@ -7,9 +7,9 @@ interface SidebarProps {
   onSelectView: (view: ActiveView) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ 
-  activeView, 
-  onSelectView 
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeView,
+  onSelectView
 }) => {
   const navItems = [
     {
