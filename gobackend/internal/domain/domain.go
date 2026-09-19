@@ -24,13 +24,14 @@ type LoginResponse struct {
 	Email       string `json:"email"`
 }
 
-// ProjectResponse mirrors ProjectService.ProjectResponse.
+// ProjectResponse mirrors ProjectService.ProjectResponse. projects.description
+// is nullable in V1, so a nil description must serialize as "description": null.
 type ProjectResponse struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	Role         string `json:"role"`
-	DiagramCount int    `json:"diagramCount"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Description  *string `json:"description"`
+	Role         string  `json:"role"`
+	DiagramCount int     `json:"diagramCount"`
 }
 
 // DiagramSummary mirrors DiagramService.DiagramSummary.
@@ -49,10 +50,12 @@ type DiagramVersion struct {
 	Document      DiagramDocument `json:"document"`
 }
 
-// DiagramDocument mirrors the Java DiagramDocument record.
+// DiagramDocument mirrors the Java DiagramDocument record. The Java UUID id has
+// no @NotNull and Jackson always serializes it, so a missing id must emit
+// "id": null rather than omit the key (frontend documents declare id optional).
 type DiagramDocument struct {
 	SchemaVersion int            `json:"schemaVersion"`
-	ID            string         `json:"id,omitempty"`
+	ID            *string        `json:"id"`
 	Name          string         `json:"name"`
 	Classes       []UmlClass     `json:"classes"`
 	Relationships []Relationship `json:"relationships"`

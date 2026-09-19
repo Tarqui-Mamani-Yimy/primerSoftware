@@ -14,7 +14,7 @@ func intPtr(i int) *int { return &i }
 func sampleDocument() domain.DiagramDocument {
 	return domain.DiagramDocument{
 		SchemaVersion: 1,
-		ID:            "doc-1",
+		ID:            strPtr("doc-1"),
 		Name:          "sample",
 		Classes: []domain.UmlClass{
 			{
@@ -125,6 +125,39 @@ func TestDiagramDocumentRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDiagramDocumentMissingIDEmitsNull(t *testing.T) {
+	// The frontend type declares id?: string, and the Java record UUID id has no
+	// @NotNull; Jackson must serialize a missing id as "id": null, never omit it.
+	decoded := mustMarshal(t, domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "no-id",
+		Classes:       []domain.UmlClass{},
+		Relationships: []domain.Relationship{},
+	})
+	id, ok := decoded["id"]
+	if !ok {
+		t.Fatalf("Jackson emits %q for a missing id; Go omitted the key: %v", "id:null", decoded)
+	}
+	if id != nil {
+		t.Errorf("expected null id (Jackson parity), got %v", id)
+	}
+}
+
+func TestProjectNullDescriptionEmitsNull(t *testing.T) {
+	// V1 defines projects.description TEXT without NOT NULL, so a null must
+	// serialize as "description": null (Jackson default), never "".
+	decoded := mustMarshal(t, domain.ProjectResponse{
+		ID: "p1", Name: "shop", Role: "OWNER",
+	})
+	desc, ok := decoded["description"]
+	if !ok {
+		t.Fatalf("Jackson emits %q for a null description; Go omitted the key: %v", "description:null", decoded)
+	}
+	if desc != nil {
+		t.Errorf("expected null description (Jackson parity), got %v", desc)
+	}
+}
+
 func TestRelationshipTypeSet(t *testing.T) {
 	want := []string{"association", "aggregation", "composition", "generalization", "realization", "dependency"}
 	if len(domain.RelationshipTypes) != len(want) {
@@ -174,7 +207,7 @@ func TestLoginJSONKeys(t *testing.T) {
 
 func TestProjectJSONKeys(t *testing.T) {
 	decoded := mustMarshal(t, domain.ProjectResponse{
-		ID: "p1", Name: "shop", Description: "d", Role: "OWNER", DiagramCount: 2,
+		ID: "p1", Name: "shop", Description: strPtr("d"), Role: "OWNER", DiagramCount: 2,
 	})
 	assertKeys(t, decoded, []string{"id", "name", "description", "role", "diagramCount"})
 }
