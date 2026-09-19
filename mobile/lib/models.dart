@@ -71,6 +71,8 @@ class UmlClass {
     this.tableBinding = '',
     this.x = 80,
     this.y = 80,
+    this.isAssociationClass = false,
+    this.attachedRelationshipId,
     List<UmlAttribute>? attributes,
     List<UmlMethod>? methods,
   })  : attributes = attributes ?? <UmlAttribute>[],
@@ -83,6 +85,8 @@ class UmlClass {
   final String tableBinding;
   final double x;
   final double y;
+  bool isAssociationClass;
+  final String? attachedRelationshipId;
   final List<UmlAttribute> attributes;
   final List<UmlMethod> methods;
 
@@ -94,6 +98,8 @@ class UmlClass {
         tableBinding: json['tableBinding'] as String? ?? '',
         x: (json['x'] as num?)?.toDouble() ?? 80,
         y: (json['y'] as num?)?.toDouble() ?? 80,
+        isAssociationClass: json['isAssociationClass'] as bool? ?? false,
+        attachedRelationshipId: json['attachedRelationshipId'] as String?,
         attributes: ((json['attributes'] as List?) ?? const [])
             .map((item) => UmlAttribute.fromJson(item as Map<String, dynamic>))
             .toList(),
@@ -110,6 +116,8 @@ class UmlClass {
         'tableBinding': tableBinding,
         'x': x,
         'y': y,
+        'isAssociationClass': isAssociationClass,
+        if (attachedRelationshipId != null) 'attachedRelationshipId': attachedRelationshipId,
         'attributes': attributes.map((attribute) => attribute.toJson()).toList(),
         'methods': methods.map((method) => method.toJson()).toList(),
       };

@@ -39,6 +39,7 @@ class AppStrings {
   static const diagramName = 'Nombre del diagrama';
   static const addClass = 'Agregar clase';
   static const className = 'Nombre de la clase';
+  static const associationClass = 'Clase de asociación';
   static const addClassHint = 'Agregá una clase para comenzar a modelar.';
   static const versionHistory = 'Historial de versiones';
   static const noVersions = 'Todavía no hay versiones';

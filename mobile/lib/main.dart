@@ -591,11 +591,20 @@ class _WorkspacePageState extends State<WorkspacePage> {
               const SizedBox(height: 16),
               FilledButton.icon(onPressed: addClass, icon: const Icon(Icons.add), label: const Text(AppStrings.addClass)),
               const SizedBox(height: 8),
-              ...document.classes.map((umlClass) => Card(child: Padding(padding: const EdgeInsets.all(12), child: TextFormField(
-                decoration: const InputDecoration(labelText: AppStrings.className, prefixIcon: Icon(Icons.class_)),
-                initialValue: umlClass.name,
-                onChanged: (value) { umlClass.name = value; scheduleAutosave(); },
-              )))),
+              ...document.classes.map((umlClass) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
+                TextFormField(
+                  decoration: const InputDecoration(labelText: AppStrings.className, prefixIcon: Icon(Icons.class_)),
+                  initialValue: umlClass.name,
+                  onChanged: (value) { umlClass.name = value; scheduleAutosave(); },
+                ),
+                SwitchListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(AppStrings.associationClass, style: TextStyle(fontSize: 13)),
+                  value: umlClass.isAssociationClass,
+                  onChanged: (value) { umlClass.isAssociationClass = value; scheduleAutosave(); },
+                ),
+              ])))),
               if (document.classes.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text(AppStrings.addClassHint)),
             ]),
             if (conflictRemote != null) Positioned(
