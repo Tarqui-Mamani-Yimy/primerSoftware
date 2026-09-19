@@ -3,7 +3,7 @@ import { ActiveView, UMLClassNode, Stereotype, JpaStrategy, UMLRelationship } fr
 import { createDiagramDocument } from './diagram/document';
 import { downloadDiagramPng, downloadDiagramSvg } from './diagram/visualExport';
 import { downloadDiagramXmi } from './diagram/xmiExport';
-import { authApi, diagramApi, AssignedProject, DiagramSummary, DiagramVersion } from './api/diagramApi';
+import { authApi, diagramApi, projectApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion } from './api/diagramApi';
 import { generateAllCodeFiles } from './data/codeGenerator';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -125,6 +125,18 @@ export default function App() {
     } finally {
       setIsDocumentLoading(false);
     }
+  };
+
+  const createProject = async (input: CreateProjectInput) => {
+    const created = await projectApi.create(input);
+    setProjects(current => [...current, created]);
+    return created;
+  };
+
+  const joinProject = async (accessCode: string) => {
+    const joined = await projectApi.join(accessCode);
+    setProjects(current => (current.some(project => project.id === joined.id) ? current : [...current, joined]));
+    return joined;
   };
 
   const createDiagram = async () => {
@@ -316,11 +328,11 @@ export default function App() {
   };
 
   if (screen === 'login') {
-    return <LoginScreen onContinue={async (email, password) => { const login = await authApi.login(email, password); authApi.setToken(login.accessToken); setUserName(login.displayName); setProjects(await authApi.projects()); setScreen('projects'); }} />;
+    return <LoginScreen onContinue={async (email, password) => { const login = await authApi.login(email, password); authApi.setToken(login.accessToken); setUserName(login.displayName); setProjects(await projectApi.list()); setScreen('projects'); }} />;
   }
 
   if (screen === 'projects') {
-    return <ProjectDashboard userName={userName} projects={projects} onSignOut={() => { authApi.setToken(); setScreen('login'); }} onOpenProject={(project) => { void openProject(project); }} />;
+    return <ProjectDashboard userName={userName} projects={projects} onSignOut={() => { authApi.setToken(); setScreen('login'); }} onOpenProject={(project) => { void openProject(project); }} onCreateProject={createProject} onJoinProject={joinProject} />;
   }
 
   return (
