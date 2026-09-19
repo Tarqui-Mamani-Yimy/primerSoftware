@@ -11,8 +11,11 @@
 //   - findFirstByDiagramIdOrderByVersionNumberDesc for max+1 numbering
 //   - findByDiagramIdOrderByVersionNumberDesc / findByDiagramIdAndVersionNumber
 //
-// SaveDiagram runs the diagram upsert and the version insert in one
-// transaction, mirroring @Transactional save()/restore().
+// Autosave and explicit checkpoints are split into SaveWorkingDocument and
+// AppendCheckpoint so untrusted autosave traffic never grows the version
+// history. AppendCheckpoint computes version_number inside the transaction and
+// stamps created_by with the actor so authorship is preserved independently
+// of the diagram creator.
 
 package store
 
@@ -20,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -40,7 +44,7 @@ func OpenPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pgxpool.NewWithConfig(ctx, cfg)
+	return pgxpool.NewWithConfig(ctx, cfg), nil
 }
 
 func (p *Postgres) FindUserByEmail(ctx context.Context, email string) (User, error) {
@@ -187,35 +191,65 @@ func isAccessCodeConflict(err error) bool {
 	return pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "access_code")
 }
 
-func (p *Postgres) SaveDiagram(ctx context.Context, d DiagramRecord, v VersionRecord) (VersionRecord, error) {
+// SaveWorkingDocument upserts the diagrams row with the current JSONB
+// document. It does NOT touch diagram_versions: explicit checkpoints own the
+// version history. The diagrams row carries the autosave snapshot, and the
+// checkpoint rows are stable references for restore/history.
+func (p *Postgres) SaveWorkingDocument(ctx context.Context, d DiagramRecord) error {
+	_, err := p.pool.Exec(ctx, `INSERT INTO diagrams (id, project_id, name, document, created_by, updated_at)
+  VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, document = EXCLUDED.document, updated_at = EXCLUDED.updated_at`,
+		d.ID, d.ProjectID, d.Name, string(d.Document), d.CreatedBy, d.UpdatedAt)
+	return err
+}
+
+// AppendCheckpoint writes a new diagram_versions row with version_number =
+// max+1. CreatedBy is stamped with the actor (preserving authorship even when
+// the actor differs from the diagram owner); Message is the optional label
+// supplied by the client and is shown in the version-history UI. The diagrams
+// row itself is left at its current autosaved snapshot.
+func (p *Postgres) AppendCheckpoint(ctx context.Context, d DiagramRecord, message *string) (VersionRecord, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return VersionRecord{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `INSERT INTO diagrams (id, project_id, name, document, created_by, updated_at)
-  VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, document = EXCLUDED.document, updated_at = EXCLUDED.updated_at`,
-		d.ID, d.ProjectID, d.Name, string(d.Document), d.CreatedBy, d.UpdatedAt); err != nil {
-		return VersionRecord{}, err
-	}
 	var next int
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version_number), 0) + 1
   FROM diagram_versions WHERE diagram_id = $1`, d.ID).Scan(&next); err != nil {
 		return VersionRecord{}, err
 	}
-	v.Number = next
-	v.DiagramID = d.ID
-	v.Document = append([]byte(nil), d.Document...)
-	if _, err := tx.Exec(ctx, `INSERT INTO diagram_versions (id, diagram_id, version_number, document, created_by, created_at)
-  VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
-		v.ID, v.DiagramID, v.Number, string(v.Document), d.CreatedBy, v.CreatedAt); err != nil {
+	id := NewUUID()
+	createdAt := time.Now().UTC()
+	if _, err := tx.Exec(ctx, `INSERT INTO diagram_versions
+  (id, diagram_id, version_number, document, created_by, created_at, message)
+  VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
+		id, d.ID, next, string(d.Document), d.CreatedBy, createdAt, message); err != nil {
 		return VersionRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return VersionRecord{}, err
 	}
-	return v, nil
+	return VersionRecord{
+		ID:        id,
+		DiagramID: d.ID,
+		Number:    next,
+		Document:  append([]byte(nil), d.Document...),
+		CreatedBy: d.CreatedBy,
+		CreatedAt: createdAt,
+		Message:   message,
+	}, nil
+}
+
+// CurrentVersion returns the highest current version_number written for a
+// diagram (0 when no checkpoint row exists yet). It is the value the service
+// mirrors into DiagramDocument.Version so clients can include it in their
+// next PUT and POST /checkpoints call.
+func (p *Postgres) CurrentVersion(ctx context.Context, diagramID string) (int, error) {
+	var v int
+	err := p.pool.QueryRow(ctx, `SELECT COALESCE(MAX(version_number), 0)
+  FROM diagram_versions WHERE diagram_id = $1`, diagramID).Scan(&v)
+	return v, err
 }
 
 func (p *Postgres) FindDiagram(ctx context.Context, projectID, diagramID string) (DiagramRecord, error) {
@@ -253,7 +287,7 @@ func (p *Postgres) ListDiagrams(ctx context.Context, projectID string) ([]Diagra
 }
 
 func (p *Postgres) ListVersions(ctx context.Context, diagramID string) ([]VersionRecord, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id, diagram_id, version_number, document::text, created_at
+	rows, err := p.pool.Query(ctx, `SELECT id, diagram_id, version_number, document::text, created_by, created_at, message
   FROM diagram_versions WHERE diagram_id = $1 ORDER BY version_number DESC`, diagramID)
 	if err != nil {
 		return nil, err
@@ -263,7 +297,7 @@ func (p *Postgres) ListVersions(ctx context.Context, diagramID string) ([]Versio
 	for rows.Next() {
 		var v VersionRecord
 		var payload string
-		if err := rows.Scan(&v.ID, &v.DiagramID, &v.Number, &payload, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.DiagramID, &v.Number, &payload, &v.CreatedBy, &v.CreatedAt, &v.Message); err != nil {
 			return nil, err
 		}
 		v.Document = []byte(payload)
@@ -275,9 +309,9 @@ func (p *Postgres) ListVersions(ctx context.Context, diagramID string) ([]Versio
 func (p *Postgres) FindVersion(ctx context.Context, diagramID string, number int) (VersionRecord, error) {
 	var v VersionRecord
 	var payload string
-	err := p.pool.QueryRow(ctx, `SELECT id, diagram_id, version_number, document::text, created_at
+	err := p.pool.QueryRow(ctx, `SELECT id, diagram_id, version_number, document::text, created_by, created_at, message
   FROM diagram_versions WHERE diagram_id = $1 AND version_number = $2`, diagramID, number).
-		Scan(&v.ID, &v.DiagramID, &v.Number, &payload, &v.CreatedAt)
+		Scan(&v.ID, &v.DiagramID, &v.Number, &payload, &v.CreatedBy, &v.CreatedAt, &v.Message)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return VersionRecord{}, ErrNotFound

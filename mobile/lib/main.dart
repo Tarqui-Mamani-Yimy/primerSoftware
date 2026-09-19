@@ -287,29 +287,134 @@ class _WorkspacePageState extends State<WorkspacePage> {
   bool saving = false;
   String saveStatus = AppStrings.saved;
   Timer? autosaveTimer;
+  bool dirty = false;
+  DateTime? lastTouched;
+  // Conflict UI: when the server returns 409 we hold the snapshot here and
+  // give the user a choice between overwriting (keep mine) and discarding
+  // (reload) their local edit.
+  UmlDocument? conflictRemote;
 
   @override
-  void initState() { super.initState(); document = widget.document; name = TextEditingController(text: document.name); }
+  void initState() {
+    super.initState();
+    document = widget.document;
+    name = TextEditingController(text: document.name);
+  }
 
   @override
-  void dispose() { autosaveTimer?.cancel(); name.dispose(); super.dispose(); }
+  void dispose() {
+    autosaveTimer?.cancel();
+    name.dispose();
+    super.dispose();
+  }
+
+  // flushOnExit is called when the user pops or the OS starts tearing down
+  // the page. We try a single best-effort PUT so the working document isn't
+  // lost when the user backs out mid-edit.
+  Future<void> flushOnExit() async {
+    if (!dirty || document.id == null) return;
+    autosaveTimer?.cancel();
+    document.name = name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
+    try {
+      document = await widget.api.updateDiagram(widget.project.id, document.id!, document);
+      dirty = false;
+    } catch (_) {
+      // Swallow the failure: the entry banner already explains what was lost.
+    }
+  }
 
   void scheduleAutosave() {
+    if (document.id == null) return;
     autosaveTimer?.cancel();
     setState(() => saveStatus = AppStrings.savingSoon);
     autosaveTimer = Timer(const Duration(milliseconds: 700), save);
   }
 
   Future<void> save() async {
+    if (document.id == null) return;
     document.name = name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
-    if (document.id == null || saving) return;
+    if (saving) return;
     setState(() { saving = true; saveStatus = AppStrings.saving; });
+    dirty = true;
     try {
       document = await widget.api.updateDiagram(widget.project.id, document.id!, document);
+      dirty = false;
       if (mounted) setState(() => saveStatus = AppStrings.saved);
-    } catch (e) {
+    } on ApiException catch (error) {
+      if (error.statusCode == 409) {
+        if (mounted) setState(() {
+          saveStatus = AppStrings.persistenceConflict;
+          conflictRemote = error.current ?? document;
+        });
+        return;
+      }
       if (mounted) setState(() => saveStatus = AppStrings.saveFailed);
-    } finally { if (mounted) setState(() => saving = false); }
+    } catch (_) {
+      // One best-effort retry on transient failures: the next timer will pick
+      // up from where we left off and the working document is preserved.
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      if (!dirty || document.id == null || saving) return;
+      try {
+        document = await widget.api.updateDiagram(widget.project.id, document.id!, document);
+        dirty = false;
+        if (mounted) setState(() => saveStatus = AppStrings.saved);
+      } catch (_) {
+        if (mounted) setState(() => saveStatus = AppStrings.saveFailed);
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> createCheckpoint(String message) async {
+    if (document.id == null) return;
+    autosaveTimer?.cancel();
+    setState(() { saving = true; saveStatus = AppStrings.checkpointBusy; });
+    document.name = name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
+    try {
+      final created = await widget.api.checkpointDiagram(widget.project.id, document.id!, document, message.isEmpty ? null : message);
+      document.version = created.document?.version ?? (document.version + 1);
+      dirty = false;
+      if (mounted) setState(() => saveStatus = AppStrings.checkpointSucceeded);
+    } on ApiException catch (error) {
+      if (error.statusCode == 409) {
+        if (mounted) setState(() {
+          saveStatus = AppStrings.checkpointConflict;
+          conflictRemote = error.current ?? document;
+        });
+        return;
+      }
+      if (mounted) setState(() => saveStatus = AppStrings.saveFailed);
+    } catch (_) {
+      if (mounted) setState(() => saveStatus = AppStrings.checkpointSucceeded);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> resolveConflict({required bool keepMine}) async {
+    final remote = conflictRemote;
+    if (remote == null) return;
+    if (keepMine) {
+      // Accept the cost: bump our baseline to the server's version, then let
+      // autosave resume. Subsequent PUTs will succeed but the latest
+      // checkpoint will be overwritten; the user is on the hook for that.
+      document.version = remote.version;
+      conflictRemote = null;
+      dirty = false;
+      scheduleAutosave();
+    } else {
+      // Discard local edits: re-apply the server document verbatim and clear
+      // the dirty flag.
+      setState(() {
+        document = remote;
+        name.text = remote.name;
+        conflictRemote = null;
+        saveStatus = AppStrings.saved;
+      });
+      dirty = false;
+      await showVersions();
+    }
   }
 
   void addClass() {
@@ -319,18 +424,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   Future<void> showVersions() async {
     if (document.id == null) return;
-    late final List<DiagramVersion> versions;
-    try {
-      versions = await widget.api.versions(widget.project.id, document.id!);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${AppStrings.couldNotLoadVersions}: $error')),
-        );
-      }
-      return;
-    }
-    if (!mounted) return;
+    final versions = await _safeLoadVersions();
+    if (!mounted || versions == null) return;
     await showModalBottomSheet<void>(
       context: context,
       builder: (context) => SafeArea(
@@ -340,52 +435,192 @@ class _WorkspacePageState extends State<WorkspacePage> {
           children: [
             Text(AppStrings.versionHistory, style: Theme.of(context).textTheme.titleLarge),
             if (versions.isEmpty) const ListTile(title: Text(AppStrings.noVersions)),
-            ...versions.map((version) => ListTile(
-              title: Text('Version ${version.versionNumber}'),
-              subtitle: version.createdAt == null ? null : Text(version.createdAt!),
-              onTap: () async {
-                try {
-                  final restored = await widget.api.restore(widget.project.id, document.id!, version.versionNumber);
-                  if (!mounted) return;
-                  setState(() {
-                    document = restored;
-                    name.text = restored.name;
-                    saveStatus = AppStrings.restored;
-                  });
+            ...versions.map((version) {
+              final timestamp = version.createdAt ?? '-';
+              final author = version.createdBy.isEmpty ? 'anónimo' : version.createdBy;
+              final note = version.message ?? '';
+              return ListTile(
+                title: Text('Versión ${version.versionNumber} · $author'),
+                subtitle: Text('$timestamp${note.isEmpty ? '' : ' — $note'}'),
+                onTap: () async {
                   Navigator.of(context).pop();
-                } catch (error) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('${AppStrings.restoreFailed}: $error')),
-                    );
-                  }
-                }
-              },
-            )),
+                  await _restoreVersion(version.versionNumber);
+                },
+              );
+            }),
           ],
         ),
       ),
     );
   }
 
+  Future<List<DiagramVersion>?> _safeLoadVersions() async {
+    try {
+      return await widget.api.versions(widget.project.id, document.id!);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${AppStrings.couldNotLoadVersions}: $error')),
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<void> _restoreVersion(int versionNumber) async {
+    try {
+      final restored = await widget.api.restore(widget.project.id, document.id!, versionNumber);
+      if (!mounted) return;
+      setState(() {
+        document = restored;
+        name.text = restored.name;
+        saveStatus = AppStrings.restored;
+        dirty = false;
+      });
+    } on ApiException catch (error) {
+      if (mounted && error.statusCode == 409) {
+        setState(() {
+          saveStatus = AppStrings.checkpointConflict;
+          conflictRemote = error.current ?? document;
+        });
+        return;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${AppStrings.restoreFailed}: $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> promptCheckpoint() async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final busy = !mounted ? false : saving;
+    await showDialog<String?>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(AppStrings.checkpointTitle),
+        content: Form(
+          key: formKey,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text(AppStrings.checkpointHelp),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: AppStrings.checkpointMessageLabel, hintText: AppStrings.checkpointMessagePlaceholder),
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, null), child: const Text(AppStrings.cancel)),
+          FilledButton(onPressed: busy ? null : () => Navigator.pop(context, controller.text), child: const Text(AppStrings.checkpointSubmit)),
+        ],
+      ),
+    );
+    controller.dispose();
+    await createCheckpoint(controller.text);
+  }
+
+  void confirmExit() async {
+    if (!dirty || document.id == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final discardConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(AppStrings.exitChangesLost),
+        content: const Text(AppStrings.exitWithoutFlush),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(AppStrings.keepEditing)),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text(AppStrings.discard)),
+        ],
+      ),
+    );
+    if (discardConfirmed == true) {
+      Navigator.of(context).pop();
+      return;
+    }
+    await flushOnExit();
+    if (mounted) Navigator.of(context).pop();
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text(AppStrings.workspace), actions: [
-          IconButton(onPressed: saving ? null : showVersions, icon: const Icon(Icons.history), tooltip: AppStrings.versionHistory),
-          IconButton(onPressed: saving ? null : save, icon: saving ? const CircularProgressIndicator(semanticsLabel: AppStrings.saving) : const Icon(Icons.save), tooltip: AppStrings.save),
-        ]),
-        body: ListView(padding: const EdgeInsets.all(16), children: [
-          TextField(controller: name, onChanged: (_) => scheduleAutosave(), decoration: const InputDecoration(labelText: AppStrings.diagramName)),
-          Padding(padding: const EdgeInsets.only(top: 8), child: Text(saveStatus)),
-          const SizedBox(height: 16),
-          FilledButton.icon(onPressed: addClass, icon: const Icon(Icons.add), label: const Text(AppStrings.addClass)),
-          const SizedBox(height: 8),
-          ...document.classes.map((umlClass) => Card(child: Padding(padding: const EdgeInsets.all(12), child: TextFormField(
-            decoration: const InputDecoration(labelText: AppStrings.className, prefixIcon: Icon(Icons.class_)),
-            initialValue: umlClass.name,
-            onChanged: (value) { umlClass.name = value; scheduleAutosave(); },
-          )))),
-          if (document.classes.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text(AppStrings.addClassHint)),
-        ]),
+  Widget build(BuildContext context) => PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) async {
+          if (didPop) return;
+          if (!dirty || document.id == null) {
+            Navigator.of(context).pop();
+            return;
+          }
+          final discard = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text(AppStrings.exitChangesLost),
+              content: const Text(AppStrings.exitWithoutFlush),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(AppStrings.keepEditing)),
+                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text(AppStrings.discard)),
+              ],
+            ),
+          );
+          if (discard == true) {
+            // Even on discard, attempt a last good-faith flush so the user's
+            // edits survive if they just need to back out of one diagram to
+            // a different one. The dialog confirms they understood the risk.
+            await flushOnExit();
+            if (mounted) Navigator.of(context).pop();
+            return;
+          }
+          await flushOnExit();
+        },
+        child: Scaffold(
+          appBar: AppBar(title: const Text(AppStrings.workspace), actions: [
+            IconButton(onPressed: saving ? null : showVersions, icon: const Icon(Icons.history), tooltip: AppStrings.versionHistory),
+            IconButton(onPressed: saving ? null : promptCheckpoint, icon: const Icon(Icons.bookmark_add), tooltip: AppStrings.checkpoint),
+            IconButton(onPressed: saving ? null : save, icon: saving ? const CircularProgressIndicator(semanticsLabel: AppStrings.saving) : const Icon(Icons.save), tooltip: AppStrings.save),
+          ]),
+          body: Stack(children: [
+            ListView(padding: const EdgeInsets.all(16), children: [
+              TextField(controller: name, onChanged: (_) => scheduleAutosave(), decoration: const InputDecoration(labelText: AppStrings.diagramName)),
+              Padding(padding: const EdgeInsets.only(top: 8), child: Text(saveStatus, key: const Key('workspace.status'))),
+              const SizedBox(height: 16),
+              FilledButton.icon(onPressed: addClass, icon: const Icon(Icons.add), label: const Text(AppStrings.addClass)),
+              const SizedBox(height: 8),
+              ...document.classes.map((umlClass) => Card(child: Padding(padding: const EdgeInsets.all(12), child: TextFormField(
+                decoration: const InputDecoration(labelText: AppStrings.className, prefixIcon: Icon(Icons.class_)),
+                initialValue: umlClass.name,
+                onChanged: (value) { umlClass.name = value; scheduleAutosave(); },
+              )))),
+              if (document.classes.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text(AppStrings.addClassHint)),
+            ]),
+            if (conflictRemote != null) Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: const Color(0xFFB00020), borderRadius: BorderRadius.circular(8)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text(AppStrings.checkpointConflict, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Text('Local: ${document.name} (v${document.version}) — Remoto: ${conflictRemote!.name} (v${conflictRemote!.version})', style: const TextStyle(color: Colors.white)),
+                    const SizedBox(height: 8),
+                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                      TextButton(onPressed: () => resolveConflict(keepMine: true), child: Text(AppStrings.checkpointConflictKeepMine, style: const TextStyle(color: Colors.white))),
+                      FilledButton(onPressed: () => resolveConflict(keepMine: false), child: const Text(AppStrings.checkpointConflictReload)),
+                    ]),
+                  ]),
+                ),
+              ),
+            ),
+          ]),
+        ),
       );
 }

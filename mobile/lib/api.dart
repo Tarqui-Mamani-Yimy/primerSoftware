@@ -24,9 +24,13 @@ class SecureTokenStore implements TokenStore {
 }
 
 class ApiException implements Exception {
-  const ApiException(this.statusCode, this.message);
+  const ApiException(this.statusCode, this.message, {this.current});
   final int statusCode;
   final String message;
+  /// Populated on 409 with the server's current document so the UI can
+  /// reload the working copy without an extra round-trip.
+  final UmlDocument? current;
+
   @override
   String toString() => 'ApiException($statusCode): $message';
 }
@@ -51,9 +55,10 @@ class ApiClient {
       ? value.substring(0, value.length - 1)
       : value;
 
-  Future<dynamic> _request(String method, String path, {Object? body}) async {
+  Future<dynamic> _request(String method, String path, {Object? body, Map<String, String>? extraHeaders}) async {
     final token = await tokenStore.read();
     final headers = <String, String>{'Content-Type': 'application/json'};
+    if (extraHeaders != null) headers.addAll(extraHeaders);
     if (token != null && token.isNotEmpty) headers['Authorization'] = 'Bearer $token';
     final uri = Uri.parse('$baseUrl$path');
     final request = http.Request(method, uri)..headers.addAll(headers);
@@ -63,8 +68,16 @@ class ApiClient {
     dynamic decoded;
     if (text.isNotEmpty) decoded = jsonDecode(text);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final message = decoded is Map ? decoded['message']?.toString() : null;
-      throw ApiException(response.statusCode, message ?? 'Request failed (${response.statusCode})');
+      final rawMessage = decoded is Map ? decoded['message']?.toString() : null;
+      UmlDocument? current;
+      if (decoded is Map && decoded['current'] is Map<String, dynamic>) {
+        try {
+          current = UmlDocument.fromJson(decoded['current'] as Map<String, dynamic>);
+        } catch (_) {
+          current = null;
+        }
+      }
+      throw ApiException(response.statusCode, rawMessage ?? 'Request failed (${response.statusCode})', current: current);
     }
     return decoded;
   }
@@ -100,8 +113,20 @@ class ApiClient {
   Future<UmlDocument> diagram(String projectId, String diagramId) async =>
       UmlDocument.fromJson(await _request('GET', '/projects/$projectId/diagrams/$diagramId') as Map<String, dynamic>);
 
-  Future<UmlDocument> updateDiagram(String projectId, String diagramId, UmlDocument document) async =>
-      UmlDocument.fromJson(await _request('PUT', '/projects/$projectId/diagrams/$diagramId', body: document.toJson()) as Map<String, dynamic>);
+  // Autosave carries the version as If-Match so a stale write surfaces as 409
+  // with the current document, never as a silent overwrite.
+  Future<UmlDocument> updateDiagram(String projectId, String diagramId, UmlDocument document) async {
+    final headers = <String, String>{'If-Match': '"${document.version}"'};
+    return UmlDocument.fromJson(await _request('PUT', '/projects/$projectId/diagrams/$diagramId', body: document.toJson(), extraHeaders: headers) as Map<String, dynamic>);
+  }
+
+  // Explicit checkpoint: the only path that grows the version history and
+  // stamps the active user as created_by.
+  Future<DiagramVersion> checkpointDiagram(String projectId, String diagramId, UmlDocument document, String? message) async {
+    final headers = <String, String>{'If-Match': '"${document.version}"'};
+    if (message != null && message.trim().isNotEmpty) headers['X-Checkpoint-Message'] = message.trim();
+    return DiagramVersion.fromJson(await _request('POST', '/projects/$projectId/diagrams/$diagramId/checkpoints', body: document.toJson(), extraHeaders: headers) as Map<String, dynamic>);
+  }
 
   Future<List<DiagramVersion>> versions(String projectId, String diagramId) async =>
       ((await _request('GET', '/projects/$projectId/diagrams/$diagramId/versions')) as List)

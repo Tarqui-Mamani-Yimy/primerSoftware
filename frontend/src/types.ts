@@ -68,13 +68,26 @@ export interface UMLRelationship {
 /**
  * Portable document exchanged with the diagram API. Keep this independent of
  * JointJS: the renderer is an implementation detail, not the source of truth.
+ *
+ * `version` is the optimistic-concurrency baseline echoed by the server after
+ * every GET/PUT and after every explicit checkpoint creation. Clients include
+ * it on their next PUT and POST /checkpoints call (and as the `If-Match`
+ * header) so a stale write surfaces as 409 with the server's current
+ * document, instead of overwriting another collaborator's checkpoint.
  */
 export interface UMLDiagramDocument {
   schemaVersion: 1;
   id?: string;
+  version: number;
   name: string;
   classes: UMLClassNode[];
   relationships: UMLRelationship[];
+}
+
+export interface DiagramCheckpointAuthor {
+  createdBy: string;
+  message?: string | null;
+  createdAt: string;
 }
 
 export type JpaStrategy = 'JOINED' | 'SINGLE' | 'TABLE_PER';

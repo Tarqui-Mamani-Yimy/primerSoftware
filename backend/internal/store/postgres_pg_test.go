@@ -83,13 +83,20 @@ func TestPostgresContract(t *testing.T) {
 		t.Errorf("updatedAt must be Instant wire format, got %q (%v)", list[0].UpdatedAt, err)
 	}
 
-	updated := domain.DiagramDocument{SchemaVersion: 1, Name: "Lib v2", Classes: []domain.UmlClass{}, Relationships: []domain.Relationship{}}
-	if _, err := svc.UpdateDiagram(ctx, projectB, diagramID, "33333333-3333-3333-3333-333333333333", updated); err != nil {
+	updated := domain.DiagramDocument{SchemaVersion: 1, Version: 1, Name: "Lib v2", Classes: []domain.UmlClass{}, Relationships: []domain.Relationship{}}
+	if _, err := svc.UpdateDiagram(ctx, projectB, diagramID, "33333333-3333-3333-3333-333333333333", updated, nil); err != nil {
 		t.Fatalf("update failed: %v", err)
 	}
 	versions, err := svc.ListVersions(ctx, projectB, diagramID, "33333333-3333-3333-3333-333333333333")
-	if err != nil || len(versions) != 2 || versions[0].VersionNumber != 2 {
-		t.Fatalf("expected versions [2 1], got %+v %v", versions, err)
+	if err != nil || len(versions) != 1 || versions[0].VersionNumber != 1 {
+		t.Fatalf("autosave must keep version at [1], got %+v %v", versions, err)
+	}
+	if _, err := svc.CreateCheckpoint(ctx, projectB, diagramID, "33333333-3333-3333-3333-333333333333", updated, nil); err != nil {
+		t.Fatalf("checkpoint failed: %v", err)
+	}
+	versions, _ = svc.ListVersions(ctx, projectB, diagramID, "33333333-3333-3333-3333-333333333333")
+	if len(versions) != 2 || versions[0].VersionNumber != 2 {
+		t.Fatalf("checkpoint must append version 2, got %+v", versions)
 	}
 	restored, err := svc.RestoreDiagram(ctx, projectB, diagramID, "33333333-3333-3333-3333-333333333333", 1)
 	if err != nil || restored.Name != "Lib" {

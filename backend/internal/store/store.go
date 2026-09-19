@@ -72,13 +72,17 @@ type DiagramRecord struct {
 	UpdatedAt time.Time
 }
 
-// VersionRecord mirrors DiagramVersionEntity.
+// VersionRecord mirrors DiagramVersionEntity. CreatedBy records the acting
+// user (annotation column on the table) and Message is an optional per-checkpoint
+// note supplied by the client; both preserve authorship of explicit saves.
 type VersionRecord struct {
 	ID        string
 	DiagramID string
 	Number    int
 	Document  []byte
+	CreatedBy string
 	CreatedAt time.Time
+	Message   *string
 }
 
 // Store is the full persistence surface used by the service layer.
@@ -98,10 +102,18 @@ type Store interface {
 	// membership joined to its project and live diagram count. Joining twice is
 	// a no-op that returns the role already held.
 	JoinProject(ctx context.Context, projectID, userID string) (AssignedProject, error)
-	// SaveDiagram creates or updates d and appends a version row carrying the
-	// same document, assigning version numbers as max+1. Implementations must
-	// apply both writes atomically, mirroring @Transactional save().
-	SaveDiagram(ctx context.Context, d DiagramRecord, v VersionRecord) (VersionRecord, error)
+	// SaveWorkingDocument upserts the diagram row (the latest autosaved
+	// state). It does NOT write to diagram_versions; explicit checkpoints own
+	// the version history.
+	SaveWorkingDocument(ctx context.Context, d DiagramRecord) error
+	// AppendCheckpoint inserts a new diagram_versions row copying d's current
+	// document, assigning version_number = max+1, stamping created_by with
+	// d.CreatedBy, and storing message as the optional user-supplied note.
+	AppendCheckpoint(ctx context.Context, d DiagramRecord, message *string) (VersionRecord, error)
+	// CurrentVersion returns the highest checkpoint number for a diagram
+	// (0 when no checkpoint row exists yet). It is the value GetDiagram
+	// echoes on the response so clients know what to send on the next PUT.
+	CurrentVersion(ctx context.Context, diagramID string) (int, error)
 	FindDiagram(ctx context.Context, projectID, diagramID string) (DiagramRecord, error)
 	ListDiagrams(ctx context.Context, projectID string) ([]DiagramRecord, error)
 	ListVersions(ctx context.Context, diagramID string) ([]VersionRecord, error)

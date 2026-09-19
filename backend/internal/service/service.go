@@ -1,7 +1,13 @@
 // Package service ports ProjectService and DiagramService: membership gating,
 // project assignment with live diagram counts, classroom-code project creation
 // and joining, diagram CRUD with forced schemaVersion/id normalization,
-// version appends with max+1 numbering, and restore-as-new-write semantics.
+// checkpoint-only version history (autosave no longer appends), and
+// restore-as-new-checkpoint semantics with optimistic-concurrency 409.
+//
+// Versioning follows an explicit-checkpoint model: autosave writes the
+// working document (PUT), and POST /checkpoints is the only path that grows
+// the diagram_versions history. CreatedBy is stamped on the version row so
+// authorship stays attached to the user that pressed "Create checkpoint".
 package service
 
 import (
@@ -36,6 +42,17 @@ func (ForbiddenError) Error() string { return "Project membership required" }
 type NotFoundError struct{ Message string }
 
 func (e NotFoundError) Error() string { return e.Message }
+
+// ConflictError is the optimistic-concurrency envelope: the client sent a
+// baseline version that no longer matches the diagrams row. The HTTP layer
+// maps it to 409 with the document the server holds so the client can merge
+// or replace its state.
+type ConflictError struct {
+	Current  domain.DiagramDocument
+	Expected int
+}
+
+func (e ConflictError) Error() string { return "Diagram was changed by another collaborator" }
 
 // ValidationError mirrors IllegalArgumentException from semantic validation
 // (and bean-validation failures): the HTTP layer maps it to 400.
@@ -205,13 +222,12 @@ func normalize(raw domain.DiagramDocument, id string) (domain.DiagramDocument, [
 	if errs := domain.ValidateDiagramInput(raw); len(errs) > 0 {
 		return domain.DiagramDocument{}, nil, ValidationError{Message: strings.Join(errs, "; ")}
 	}
-	if errs := domain.ValidateDocument(raw); len(errs) > 0 {
-		return domain.DiagramDocument{}, nil, ValidationError{Message: strings.Join(errs, "; ")}
-	}
 	// save() forces schemaVersion 1 and the path/generated id, ignoring input.
 	doc := domain.DiagramDocument{
-		SchemaVersion: 1, ID: &id, Name: raw.Name,
-		Classes: raw.Classes, Relationships: raw.Relationships,
+		SchemaVersion: 1, ID: &id, Version: raw.Version,
+		Name:          raw.Name,
+		Classes:       raw.Classes,
+		Relationships: raw.Relationships,
 	}
 	if doc.Classes == nil {
 		doc.Classes = []domain.UmlClass{}
@@ -226,6 +242,22 @@ func normalize(raw domain.DiagramDocument, id string) (domain.DiagramDocument, [
 	return doc, payload, nil
 }
 
+// hydrateVersion mirrors the current version into the document the service
+// hands back to a client. It is called whenever the response document is
+// built, so clients always see the integer they must echo on the next PUT or
+// POST /checkpoints call.
+func (s *Service) hydrateVersion(ctx context.Context, doc *domain.DiagramDocument) error {
+	if doc.ID == nil {
+		return nil
+	}
+	current, err := s.store.CurrentVersion(ctx, *doc.ID)
+	if err != nil {
+		return err
+	}
+	doc.Version = current
+	return nil
+}
+
 func toDocument(payload []byte) (domain.DiagramDocument, error) {
 	var doc domain.DiagramDocument
 	if err := json.Unmarshal(payload, &doc); err != nil {
@@ -234,8 +266,9 @@ func toDocument(payload []byte) (domain.DiagramDocument, error) {
 	return doc, nil
 }
 
-// CreateDiagram ports DiagramService.create: membership gate, fresh id,
-// version 1 row in the same transaction. The HTTP layer maps success to 201.
+// CreateDiagram ports DiagramService.create: membership gate, fresh id, a
+// version-1 row as the implicit first checkpoint so the new diagram has a
+// stable starting point in the history. The HTTP layer maps success to 201.
 func (s *Service) CreateDiagram(ctx context.Context, projectID, userID string, raw domain.DiagramDocument) (domain.DiagramDocument, error) {
 	if err := s.requireMember(ctx, projectID, userID); err != nil {
 		return domain.DiagramDocument{}, err
@@ -246,15 +279,24 @@ func (s *Service) CreateDiagram(ctx context.Context, projectID, userID string, r
 		return domain.DiagramDocument{}, err
 	}
 	now := time.Now().UTC()
-	_, err = s.store.SaveDiagram(ctx,
+	if err := s.store.SaveWorkingDocument(ctx,
 		store.DiagramRecord{ID: id, ProjectID: projectID, Name: doc.Name, Document: payload, CreatedBy: userID, UpdatedAt: now},
-		store.VersionRecord{ID: store.NewUUID(), CreatedAt: now},
-	)
-	if err != nil {
+	); err != nil {
+		return domain.DiagramDocument{}, err
+	}
+	if _, err := s.store.AppendCheckpoint(ctx,
+		store.DiagramRecord{ID: id, ProjectID: projectID, Name: doc.Name, Document: payload, CreatedBy: userID, UpdatedAt: now},
+		strPtr("Initial revision"),
+	); err != nil {
+		return domain.DiagramDocument{}, err
+	}
+	if err := s.hydrateVersion(ctx, &doc); err != nil {
 		return domain.DiagramDocument{}, err
 	}
 	return doc, nil
 }
+
+func strPtr(s string) *string { return &s }
 
 // GetDiagram ports DiagramService.get.
 func (s *Service) GetDiagram(ctx context.Context, projectID, diagramID, userID string) (domain.DiagramDocument, error) {
@@ -268,10 +310,19 @@ func (s *Service) GetDiagram(ctx context.Context, projectID, diagramID, userID s
 		}
 		return domain.DiagramDocument{}, err
 	}
-	return toDocument(row.Document)
+	doc, err := toDocument(row.Document)
+	if err != nil {
+		return domain.DiagramDocument{}, err
+	}
+	if err := s.hydrateVersion(ctx, &doc); err != nil {
+		return domain.DiagramDocument{}, err
+	}
+	return doc, nil
 }
 
-// ListDiagrams ports DiagramService.list (updatedAt desc).
+// ListDiagrams ports DiagramService.list (updatedAt desc). Each summary
+// carries a current version number so the CLI / mobile list rows can render
+// "v3" alongside the diagram name without an extra round-trip.
 func (s *Service) ListDiagrams(ctx context.Context, projectID, userID string) ([]domain.DiagramSummary, error) {
 	if err := s.requireMember(ctx, projectID, userID); err != nil {
 		return nil, err
@@ -282,16 +333,26 @@ func (s *Service) ListDiagrams(ctx context.Context, projectID, userID string) ([
 	}
 	out := make([]domain.DiagramSummary, 0, len(rows))
 	for _, r := range rows {
+		version, err := s.store.CurrentVersion(ctx, r.ID)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, domain.DiagramSummary{
-			ID: r.ID, Name: r.Name, UpdatedAt: domain.FormatInstant(r.UpdatedAt),
+			ID: r.ID, Name: r.Name,
+			UpdatedAt: domain.FormatInstant(r.UpdatedAt),
+			Version:   version,
 		})
 	}
 	return out, nil
 }
 
-// UpdateDiagram ports DiagramService.update: membership gate, rewrite plus a
-// new version row.
-func (s *Service) UpdateDiagram(ctx context.Context, projectID, diagramID, userID string, raw domain.DiagramDocument) (domain.DiagramDocument, error) {
+// UpdateDiagram is the autosave path: it writes the new working document
+// without appending a version row. The client may include Version in the body
+// (or an If-Match header that the HTTP layer converts to it) to enable
+// optimistic concurrency; a stale baseline yields a 409 carrying the server's
+// current document so the client can reload and retry. The returned
+// document mirrors the unchanged current version.
+func (s *Service) UpdateDiagram(ctx context.Context, projectID, diagramID, userID string, raw domain.DiagramDocument, ifMatch *int) (domain.DiagramDocument, error) {
 	if err := s.requireMember(ctx, projectID, userID); err != nil {
 		return domain.DiagramDocument{}, err
 	}
@@ -301,23 +362,95 @@ func (s *Service) UpdateDiagram(ctx context.Context, projectID, diagramID, userI
 		}
 		return domain.DiagramDocument{}, err
 	}
+	current, err := s.store.CurrentVersion(ctx, diagramID)
+	if err != nil {
+		return domain.DiagramDocument{}, err
+	}
+	effectiveBaseline := raw.Version
+	if ifMatch != nil {
+		effectiveBaseline = *ifMatch
+	}
+	if effectiveBaseline != current {
+		existing, err := s.loadDiagramDocument(ctx, projectID, diagramID, userID)
+		if err != nil {
+			return domain.DiagramDocument{}, err
+		}
+		return domain.DiagramDocument{}, ConflictError{Current: existing, Expected: effectiveBaseline}
+	}
 	doc, payload, err := normalize(raw, diagramID)
 	if err != nil {
 		return domain.DiagramDocument{}, err
 	}
-	now := time.Now().UTC()
-	_, err = s.store.SaveDiagram(ctx,
-		store.DiagramRecord{ID: diagramID, ProjectID: projectID, Name: doc.Name, Document: payload, CreatedBy: userID, UpdatedAt: now},
-		store.VersionRecord{ID: store.NewUUID(), CreatedAt: now},
-	)
-	if err != nil {
+	if err := s.store.SaveWorkingDocument(ctx,
+		store.DiagramRecord{ID: diagramID, ProjectID: projectID, Name: doc.Name, Document: payload, CreatedBy: userID, UpdatedAt: time.Now().UTC()},
+	); err != nil {
 		return domain.DiagramDocument{}, err
 	}
+	doc.Version = current
 	return doc, nil
 }
 
+// CreateCheckpoint is the explicit-save path: it first performs a guarded
+// SaveWorkingDocument (If-Match/version guard for concurrent checkpoints)
+// and then appends a new diagram_versions row stamping the actor as created_by.
+// This is the only call that grows the version history.
+func (s *Service) CreateCheckpoint(ctx context.Context, projectID, diagramID, userID string, raw domain.DiagramDocument, message *string) (domain.DiagramVersion, error) {
+	if err := s.requireMember(ctx, projectID, userID); err != nil {
+		return domain.DiagramVersion{}, err
+	}
+	if _, err := s.store.FindDiagram(ctx, projectID, diagramID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return domain.DiagramVersion{}, NotFoundError{Message: "Diagram not found"}
+		}
+		return domain.DiagramVersion{}, err
+	}
+	current, err := s.store.CurrentVersion(ctx, diagramID)
+	if err != nil {
+		return domain.DiagramVersion{}, err
+	}
+	if raw.Version != current {
+		existing, err := s.loadDiagramDocument(ctx, projectID, diagramID, userID)
+		if err != nil {
+			return domain.DiagramVersion{}, err
+		}
+		return domain.DiagramVersion{}, ConflictError{Current: existing, Expected: raw.Version}
+	}
+	doc, payload, err := normalize(raw, diagramID)
+	if err != nil {
+		return domain.DiagramVersion{}, err
+	}
+	diagram := store.DiagramRecord{ID: diagramID, ProjectID: projectID, Name: doc.Name, Document: payload, CreatedBy: userID, UpdatedAt: time.Now().UTC()}
+	if err := s.store.SaveWorkingDocument(ctx, diagram); err != nil {
+		return domain.DiagramVersion{}, err
+	}
+	version, err := s.store.AppendCheckpoint(ctx, diagram, message)
+	if err != nil {
+		return domain.DiagramVersion{}, err
+	}
+	reflected, err := toDocument(version.Document)
+	if err != nil {
+		return domain.DiagramVersion{}, err
+	}
+	reflected.Version = version.Number
+	return domain.DiagramVersion{
+		ID: version.ID, VersionNumber: version.Number,
+		CreatedAt: domain.FormatInstant(version.CreatedAt),
+		CreatedBy: version.CreatedBy,
+		Message:   version.Message,
+		Document:  reflected,
+	}, nil
+}
+
+// loadDiagramDocument is a small helper the 409 path uses to fetch and
+// hydrate the document the server is now holding.
+func (s *Service) loadDiagramDocument(ctx context.Context, projectID, diagramID, userID string) (domain.DiagramDocument, error) {
+	return s.GetDiagram(ctx, projectID, diagramID, userID)
+}
+
 // ListVersions ports DiagramService.versions (versionNumber desc). The leading
-// get() preserves the membership gate and the 404 for missing diagrams.
+// get() preserves the membership gate and the 404 for missing diagrams. Each
+// row carries the actor and the optional checkpoint message so the
+// version-history UI can attribute authorship.
 func (s *Service) ListVersions(ctx context.Context, projectID, diagramID, userID string) ([]domain.DiagramVersion, error) {
 	if _, err := s.GetDiagram(ctx, projectID, diagramID, userID); err != nil {
 		return nil, err
@@ -332,16 +465,22 @@ func (s *Service) ListVersions(ctx context.Context, projectID, diagramID, userID
 		if err != nil {
 			return nil, err
 		}
+		doc.Version = r.Number
 		out = append(out, domain.DiagramVersion{
 			ID: r.ID, VersionNumber: r.Number,
-			CreatedAt: domain.FormatInstant(r.CreatedAt), Document: doc,
+			CreatedAt: domain.FormatInstant(r.CreatedAt),
+			CreatedBy: r.CreatedBy,
+			Message:   r.Message,
+			Document:  doc,
 		})
 	}
 	return out, nil
 }
 
-// RestoreDiagram ports DiagramService.restore: the old version payload becomes
-// a NEW write plus a new version row.
+// RestoreDiagram ports DiagramService.restore: the old version payload
+// becomes the new working document and a new explicit checkpoint records the
+// restore as a deliberate save. The new version carries a "Restored v{N}"
+// message so the history shows what produced the change.
 func (s *Service) RestoreDiagram(ctx context.Context, projectID, diagramID, userID string, number int) (domain.DiagramDocument, error) {
 	if _, err := s.GetDiagram(ctx, projectID, diagramID, userID); err != nil {
 		return domain.DiagramDocument{}, err
@@ -357,5 +496,10 @@ func (s *Service) RestoreDiagram(ctx context.Context, projectID, diagramID, user
 	if err != nil {
 		return domain.DiagramDocument{}, err
 	}
-	return s.UpdateDiagram(ctx, projectID, diagramID, userID, snapshot)
+	snapshot.Version = 0
+	_, err = s.CreateCheckpoint(ctx, projectID, diagramID, userID, snapshot, strPtr(fmt.Sprintf("Restored v%d", number)))
+	if err != nil {
+		return domain.DiagramDocument{}, err
+	}
+	return s.GetDiagram(ctx, projectID, diagramID, userID)
 }

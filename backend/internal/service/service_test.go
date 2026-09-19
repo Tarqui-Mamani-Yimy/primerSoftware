@@ -206,7 +206,7 @@ func TestJoinProjectErrors(t *testing.T) {
 	}
 }
 
-func TestDiagramCRUDVersionsAndRestore(t *testing.T) {
+func TestDiagramAutosaveKeepsVersionStable(t *testing.T) {
 	ctx := context.Background()
 	svc := service.New(seedStore(t))
 
@@ -214,42 +214,102 @@ func TestDiagramCRUDVersionsAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
-	if created.SchemaVersion != 1 || created.ID == nil || *created.ID == "" {
-		t.Fatalf("create must assign schemaVersion 1 and an id: %+v", created)
+	if created.Version != 1 {
+		t.Fatalf("create must seed an implicit checkpoint v1, got version %d", created.Version)
 	}
 	diagramID := *created.ID
 
-	got, err := svc.GetDiagram(ctx, projectID, diagramID, anaID)
-	if err != nil || got.Name != "Main" {
-		t.Fatalf("get failed: %+v %v", got, err)
-	}
-
-	list, err := svc.ListDiagrams(ctx, projectID, anaID)
-	if err != nil || len(list) != 1 || list[0].ID != diagramID {
-		t.Fatalf("list failed: %+v %v", list, err)
-	}
-
 	updated := emptyDoc()
-	updated.Name = "Renamed"
-	if _, err := svc.UpdateDiagram(ctx, projectID, diagramID, anaID, updated); err != nil {
+	updated.Name = "Autosave"
+	updated.Version = 1
+	if doc, err := svc.UpdateDiagram(ctx, projectID, diagramID, anaID, updated, nil); err != nil {
 		t.Fatalf("update failed: %v", err)
+	} else if doc.Version != 1 {
+		t.Fatalf("autosave must not grow the version, got version %d", doc.Version)
 	}
 
 	versions, err := svc.ListVersions(ctx, projectID, diagramID, anaID)
 	if err != nil {
 		t.Fatalf("versions failed: %v", err)
 	}
-	if len(versions) != 2 || versions[0].VersionNumber != 2 || versions[1].VersionNumber != 1 {
-		t.Fatalf("expected versions [2 1] desc, got %+v", versions)
+	if len(versions) != 1 || versions[0].VersionNumber != 1 {
+		t.Fatalf("autosave must keep version history at [1], got %+v", versions)
+	}
+}
+
+func TestExplicitCheckpointAdvancesVersionAndStampsAuthor(t *testing.T) {
+	ctx := context.Background()
+	svc := service.New(seedStore(t))
+
+	created, err := svc.CreateDiagram(ctx, projectID, anaID, emptyDoc())
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	diagramID := *created.ID
+
+	checkpoint := emptyDoc()
+	checkpoint.Name = "Stable model"
+	checkpoint.Version = 1
+	msg := "first stable revision"
+	v, err := svc.CreateCheckpoint(ctx, projectID, diagramID, anaID, checkpoint, &msg)
+	if err != nil {
+		t.Fatalf("checkpoint failed: %v", err)
+	}
+	if v.VersionNumber != 2 || v.CreatedBy != anaID || v.Message == nil || *v.Message != msg {
+		t.Fatalf("expected checkpoint v2 by ana with message, got %+v", v)
 	}
 
-	restored, err := svc.RestoreDiagram(ctx, projectID, diagramID, anaID, 1)
-	if err != nil || restored.Name != "Main" {
-		t.Fatalf("restore failed: %+v %v", restored, err)
+	doc, err := svc.GetDiagram(ctx, projectID, diagramID, anaID)
+	if err != nil || doc.Version != 2 || doc.Name != "Stable model" {
+		t.Fatalf("diagram must reflect checkpoint v2 with the new name: %+v %v", doc, err)
 	}
-	versions, _ = svc.ListVersions(ctx, projectID, diagramID, anaID)
-	if len(versions) != 3 || versions[0].VersionNumber != 3 {
-		t.Fatalf("restore must append version 3, got %+v", versions)
+}
+
+func TestStaleAutosaveReturnsConflict(t *testing.T) {
+	ctx := context.Background()
+	svc := service.New(seedStore(t))
+
+	created, err := svc.CreateDiagram(ctx, projectID, anaID, emptyDoc())
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	diagramID := *created.ID
+
+	stale := emptyDoc()
+	stale.Name = "Stale rename"
+	stale.Version = 0
+	if _, err := svc.UpdateDiagram(ctx, projectID, diagramID, anaID, stale, nil); err == nil {
+		t.Fatalf("autosave with stale baseline must conflict")
+	} else if c, ok := err.(service.ConflictError); !ok {
+		t.Fatalf("expected ConflictError, got %T (%v)", err, err)
+	} else if c.Current.Name != emptyDoc().Name {
+		t.Fatalf("conflict envelope must carry the server document: %+v", c)
+	}
+}
+
+func TestIfMatchHeaderAdvancesBaselineGuard(t *testing.T) {
+	ctx := context.Background()
+	svc := service.New(seedStore(t))
+	created, err := svc.CreateDiagram(ctx, projectID, anaID, emptyDoc())
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	diagramID := *created.ID
+
+	checkpoint := emptyDoc()
+	checkpoint.Name = "v2"
+	checkpoint.Version = 1
+	if _, err := svc.CreateCheckpoint(ctx, projectID, diagramID, anaID, checkpoint, nil); err != nil {
+		t.Fatalf("checkpoint failed: %v", err)
+	}
+
+	updated := emptyDoc()
+	updated.Name = "autosave against v2"
+	ifMatch := 2
+	if doc, err := svc.UpdateDiagram(ctx, projectID, diagramID, anaID, updated, &ifMatch); err != nil {
+		t.Fatalf("autosave with matching If-Match must succeed: %v", err)
+	} else if doc.Version != 2 {
+		t.Fatalf("autosave must leave version at 2, got %d", doc.Version)
 	}
 }
 

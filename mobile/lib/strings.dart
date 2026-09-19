@@ -50,4 +50,22 @@ class AppStrings {
   static const restored = 'Restaurado';
   static const couldNotLoadVersions = 'No se pudieron cargar las versiones';
   static const restoreFailed = 'No se pudo restaurar';
+  static const exitChangesLost = 'Hay cambios sin sincronizar. ¿Salir sin guardar?';
+  static const discard = 'Salir sin guardar';
+  static const keepEditing = 'Seguir editando';
+  static const exitWithoutFlush = 'Hay cambios sin sincronizar y estamos cerrando la pantalla.';
+  static const pendingFlushOnExit = 'Intentaremos enviar el último estado antes de salir.';
+  static const checkpoint = 'Crear checkpoint';
+  static const checkpointTitle = 'Crear un checkpoint';
+  static const checkpointHelp = 'Un checkpoint etiqueta el estado actual y lo agrega al historial con tu nombre.';
+  static const checkpointMessageLabel = 'Mensaje (opcional)';
+  static const checkpointMessagePlaceholder = 'Ej.: corregí la relación de checkout';
+  static const checkpointSubmit = 'Crear checkpoint';
+  static const checkpointBusy = 'Creando el checkpoint…';
+  static const checkpointSucceeded = 'Checkpoint creado';
+  static const checkpointConflict = 'Otra persona creó un checkpoint antes. Revisá el estado y decidí qué hacer.';
+  static const checkpointConflictKeepMine = 'Sobrescribir igualmente';
+  static const checkpointConflictReload = 'Recargar y descartar mi edición';
+  static const persistenceConflict = 'Versión desactualizada';
+  static const syncOffline = 'Sin conexión';
 }

@@ -195,25 +195,64 @@ func (m *MemoryStore) JoinProject(_ context.Context, projectID, userID string) (
 	}, nil
 }
 
-func (m *MemoryStore) SaveDiagram(_ context.Context, d DiagramRecord, v VersionRecord) (VersionRecord, error) {
+// SaveWorkingDocument mirrors the Postgres implementation: it upserts the
+// diagrams row without writing to diagram_versions, since autosave must not
+// pollute the explicit-checkpoint history.
+func (m *MemoryStore) SaveWorkingDocument(_ context.Context, d DiagramRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	d.UpdatedAt = time.Now().UTC()
+	if d.UpdatedAt.IsZero() {
+		d.UpdatedAt = time.Now().UTC()
+	}
 	m.diagrams[d.ID] = d
+	return nil
+}
+
+// AppendCheckpoint mirrors the Postgres implementation: it assigns
+// version_number = max+1, stamps CreatedBy with the actor (authorship), and
+// stores the optional Message verbatim.
+func (m *MemoryStore) AppendCheckpoint(_ context.Context, d DiagramRecord, message *string) (VersionRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	next := 1
 	for _, existing := range m.versions[d.ID] {
 		if existing.Number >= next {
 			next = existing.Number + 1
 		}
 	}
-	v.Number = next
-	v.DiagramID = d.ID
-	v.Document = append([]byte(nil), d.Document...)
-	if v.CreatedAt.IsZero() {
-		v.CreatedAt = time.Now().UTC()
+	current, ok := m.diagrams[d.ID]
+	if !ok || current.ID == "" {
+		m.diagrams[d.ID] = d
+	} else if d.CreatedBy != "" && current.CreatedBy == "" {
+		current.CreatedBy = d.CreatedBy
+		m.diagrams[d.ID] = current
+	}
+	v := VersionRecord{
+		ID:        NewUUID(),
+		DiagramID: d.ID,
+		Number:    next,
+		Document:  append([]byte(nil), d.Document...),
+		CreatedBy: d.CreatedBy,
+		CreatedAt: time.Now().UTC(),
+		Message:   message,
 	}
 	m.versions[d.ID] = append(m.versions[d.ID], v)
 	return v, nil
+}
+
+// CurrentVersion mirrors Postgres: the highest version_number for a diagram
+// (0 when no checkpoint row exists yet). Tests use it to assert the Version
+// the service mirrors onto DiagramDocument after save/restore.
+func (m *MemoryStore) CurrentVersion(_ context.Context, diagramID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	max := 0
+	for _, v := range m.versions[diagramID] {
+		if v.Number > max {
+			max = v.Number
+		}
+	}
+	return max, nil
 }
 
 func (m *MemoryStore) FindDiagram(_ context.Context, projectID, diagramID string) (DiagramRecord, error) {

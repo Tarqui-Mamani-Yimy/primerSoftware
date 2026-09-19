@@ -159,6 +159,7 @@ class UmlDocument {
   UmlDocument({
     this.schemaVersion = 1,
     this.id,
+    this.version = 0,
     required this.name,
     List<UmlClass>? classes,
     List<UmlRelationship>? relationships,
@@ -167,6 +168,7 @@ class UmlDocument {
 
   final int schemaVersion;
   final String? id;
+  int version;
   String name;
   final List<UmlClass> classes;
   final List<UmlRelationship> relationships;
@@ -174,6 +176,7 @@ class UmlDocument {
   factory UmlDocument.fromJson(Map<String, dynamic> json) => UmlDocument(
         schemaVersion: json['schemaVersion'] as int? ?? 1,
         id: json['id'] as String?,
+        version: (json['version'] as num?)?.toInt() ?? 0,
         name: json['name'] as String? ?? 'Untitled diagram',
         classes: ((json['classes'] as List?) ?? const [])
             .map((item) => UmlClass.fromJson(item as Map<String, dynamic>))
@@ -186,6 +189,7 @@ class UmlDocument {
   Map<String, dynamic> toJson() => {
         'schemaVersion': schemaVersion,
         if (id != null) 'id': id,
+        'version': version,
         'name': name,
         'classes': classes.map((item) => item.toJson()).toList(),
         'relationships': relationships.map((item) => item.toJson()).toList(),
@@ -212,27 +216,33 @@ class Project {
 }
 
 class DiagramSummary {
-  const DiagramSummary({required this.id, required this.name, this.updatedAt});
+  const DiagramSummary({required this.id, required this.name, this.updatedAt, this.version = 0});
   final String id;
   final String name;
   final String? updatedAt;
+  final int version;
 
   factory DiagramSummary.fromJson(Map<String, dynamic> json) => DiagramSummary(
         id: json['id'] as String? ?? '',
         name: json['name'] as String? ?? 'Untitled diagram',
         updatedAt: json['updatedAt'] as String?,
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
 class DiagramVersion {
-  const DiagramVersion({required this.versionNumber, this.createdAt, this.document});
+  const DiagramVersion({required this.versionNumber, this.createdAt, this.createdBy = '', this.message, this.document});
   final int versionNumber;
   final String? createdAt;
+  final String createdBy;
+  final String? message;
   final UmlDocument? document;
 
   factory DiagramVersion.fromJson(Map<String, dynamic> json) => DiagramVersion(
         versionNumber: (json['versionNumber'] as num?)?.toInt() ?? 0,
         createdAt: json['createdAt'] as String?,
+        createdBy: json['createdBy'] as String? ?? '',
+        message: json['message'] as String?,
         document: json['document'] is Map<String, dynamic>
             ? UmlDocument.fromJson(json['document'] as Map<String, dynamic>)
             : null,

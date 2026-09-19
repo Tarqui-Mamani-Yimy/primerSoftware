@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/ai-uml-architect/gobackend/internal/domain"
 	"github.com/ai-uml-architect/gobackend/internal/service"
@@ -31,6 +32,7 @@ func Routes() []Route {
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams"},
 		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}"},
 		{Method: http.MethodPut, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/checkpoints"},
 		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions"},
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore"},
 	}
@@ -84,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams", s.withAuth(s.handleCreateDiagram))
 	mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}", s.withAuth(s.handleGetDiagram))
 	mux.HandleFunc(http.MethodPut+" /api/v1/projects/{projectId}/diagrams/{id}", s.withAuth(s.handleUpdateDiagram))
+	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/checkpoints", s.withAuth(s.handleCreateCheckpoint))
 	mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}/versions", s.withAuth(s.handleListVersions))
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore", s.withAuth(s.handleRestore))
 	return s.withCORS(mux)
@@ -140,7 +143,8 @@ func diagramOf(w http.ResponseWriter, r *http.Request) (string, bool) {
 
 // mapError translates service errors to the ApiExceptionHandler statuses:
 // InvalidCredentials -> 401, AccessDenied -> 403, NoSuchElement -> 404,
-// IllegalArgument/validation -> 400. It reports whether it handled err.
+// IllegalArgument/validation -> 400, optimistic-concurrency -> 409 with the
+// server's current document so the client can merge.
 func mapError(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false
@@ -154,10 +158,22 @@ func mapError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusNotFound, e.Message)
 	case service.ValidationError:
 		writeError(w, http.StatusBadRequest, e.Message)
+	case service.ConflictError:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(conflictEnvelope{Message: e.Error(), Current: e.Current})
+		return true
 	default:
 		writeError(w, http.StatusInternalServerError, "Request failed")
 	}
 	return true
+}
+
+// conflictEnvelope is the 409 body: the standard message envelope plus the
+// current document so the client can reload without a second round-trip.
+type conflictEnvelope struct {
+	Message string                   `json:"message"`
+	Current domain.DiagramDocument    `json:"current"`
 }
 
 func (s *Server) handleAssigned(w http.ResponseWriter, r *http.Request) {
@@ -260,11 +276,66 @@ func (s *Server) handleUpdateDiagram(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &raw) {
 		return
 	}
-	doc, err := s.services.UpdateDiagram(r.Context(), projectID, diagramID, userOf(r), raw)
+	ifMatch := ifMatchVersion(r.Header.Get("If-Match"))
+	doc, err := s.services.UpdateDiagram(r.Context(), projectID, diagramID, userOf(r), raw, ifMatch)
 	if mapError(w, err) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, doc)
+}
+
+// ifMatchVersion extracts a non-negative integer from a strong or weak
+// validator ("3", "\"3\"", `W/"3"`). Quotes and the W/ weak marker are
+// tolerated; anything that does not parse is returned as nil so the service
+// falls back to the body-supplied Version field.
+func ifMatchVersion(header string) *int {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return nil
+	}
+	header = strings.TrimPrefix(header, "W/")
+	header = strings.Trim(header, "\"")
+	n, err := strconv.Atoi(header)
+	if err != nil || n < 0 {
+		return nil
+	}
+	p := n
+	return &p
+}
+
+// handleCreateCheckpoint is the explicit-save path: it writes the new
+// working document AND appends a new diagram_versions row stamping the
+// caller as created_by. The body shape matches PUT (DiagramDocument) so the
+// client sends the exact working document it wants to checkpoint; the
+// optional message travels via the X-Checkpoint-Message header, mirroring
+// GitHub's API. The version is supplied through If-Match (preferred) or the
+// body's version field.
+func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := projectOf(w, r)
+	if !ok {
+		return
+	}
+	diagramID, ok := diagramOf(w, r)
+	if !ok {
+		return
+	}
+	var doc domain.DiagramDocument
+	if !decode(w, r, &doc) {
+		return
+	}
+	ifMatch := ifMatchVersion(r.Header.Get("If-Match"))
+	if ifMatch != nil {
+		doc.Version = *ifMatch
+	}
+	var message *string
+	if raw := strings.TrimSpace(r.Header.Get("X-Checkpoint-Message")); raw != "" {
+		message = &raw
+	}
+	version, err := s.services.CreateCheckpoint(r.Context(), projectID, diagramID, userOf(r), doc, message)
+	if mapError(w, err) {
+		return
+	}
+	s.writeJSON(w, http.StatusCreated, version)
 }
 
 func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {

@@ -34,6 +34,8 @@ interface CanvasViewProps {
   onRenameDiagram: (name: string) => void;
   onLoadVersions: () => void;
   onRestoreVersion: (versionNumber: number) => void;
+  onCreateCheckpoint: () => void;
+  persistenceLabel: string;
 }
 
 type Point = { x: number; y: number };
@@ -197,12 +199,16 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
           </div>}
         </div>
         {props.diagramId && <input aria-label="Diagram name" value={props.diagramName} onChange={(event) => props.onRenameDiagram(event.target.value)} className="w-32 bg-transparent text-[#bbcabf] outline-none focus:text-white" placeholder="Diagram name" />}
-        <span className={props.persistenceStatus === 'error' ? 'text-[#ffb4ab]' : props.persistenceStatus === 'saved' ? 'text-[#4edea3]' : 'text-[#bbcabf]'}>{props.isDocumentLoading ? es.canvas.loading : props.persistenceStatus === 'saving' ? es.canvas.saving : props.persistenceStatus === 'saved' ? es.canvas.saved : props.persistenceStatus === 'error' ? es.canvas.saveFailed : ''}</span>
+        <span className={props.persistenceStatus === 'error' ? 'text-[#ffb4ab]' : props.persistenceStatus === 'saved' ? 'text-[#4edea3]' : 'text-[#bbcabf]'}>{props.isDocumentLoading ? es.canvas.loading : props.persistenceLabel}</span>
+        {props.diagramId && <button type="button" onClick={props.onCreateCheckpoint} className="border-l border-[#3c4a42] pl-2 hover:text-[#4edea3]" aria-label={es.canvas.createCheckpoint} title={es.canvas.createCheckpoint}>{es.canvas.createCheckpoint}</button>}
         {props.diagramId && <div className="relative border-l border-[#3c4a42] pl-2">
           <button type="button" onClick={() => { setShowVersions((current) => !current); if (!showVersions) props.onLoadVersions(); }} className="hover:text-[#4edea3]" aria-label={es.canvas.history}>{es.canvas.history}</button>
           {showVersions && <div className="absolute left-0 top-7 w-56 border border-[#3c4a42] bg-[#1c2028] p-1 shadow-xl">
             {props.versions.length === 0 ? <p className="p-2 text-[#86948a]">{es.canvas.noVersions}</p> : props.versions.map((version) => <button key={version.id} type="button" onClick={() => { props.onRestoreVersion(version.versionNumber); setShowVersions(false); }} className="w-full px-2 py-2 text-left text-[#dfe2ee] hover:bg-[#262a33]">
-              {es.canvas.version(version.versionNumber)}<span className="ml-2 text-[10px] text-[#86948a]">{new Date(version.createdAt).toLocaleString()}</span>
+              {es.canvas.version(version.versionNumber)}
+              <span className="ml-2 text-[10px] text-[#86948a]">{new Date(version.createdAt).toLocaleString()}</span>
+              <span className="ml-2 text-[10px] text-[#4edea3]">{version.createdBy ? version.createdBy.slice(0, 12) : 'anónimo'}</span>
+              {version.message && <span className="ml-2 text-[10px] text-[#bbcabf]">{version.message}</span>
             </button>)}
           </div>}
         </div>}
