@@ -103,7 +103,7 @@ type DiagramDocument struct {
 // is required to detect a concurrent checkpoint; the message is optional and
 // is stored on the version row to preserve authorship of the explicit save.
 type CheckpointRequest struct {
-	Version *int   `json:"version"`
+	Version *int    `json:"version"`
 	Message *string `json:"message"`
 }
 
@@ -113,18 +113,18 @@ type CheckpointRequest struct {
 // extension: a class may be attached to one existing relationship so the
 // diagram editor can render it at the relationship's midpoint.
 type UmlClass struct {
-	ID                   string      `json:"id"`
-	Name                 string      `json:"name"`
-	Stereotype           *string     `json:"stereotype"`
-	PackageName          *string     `json:"package"`
-	TableBinding         *string     `json:"tableBinding"`
-	X                    int         `json:"x"`
-	Y                    int         `json:"y"`
-	Width                *int        `json:"width"`
-	Attributes           []Attribute `json:"attributes"`
-	Methods              []Method    `json:"methods"`
-	IsAssociationClass   *bool       `json:"isAssociationClass"`
-	AttachedRelationshipID *string   `json:"attachedRelationshipId"`
+	ID                     string      `json:"id"`
+	Name                   string      `json:"name"`
+	Stereotype             *string     `json:"stereotype"`
+	PackageName            *string     `json:"package"`
+	TableBinding           *string     `json:"tableBinding"`
+	X                      int         `json:"x"`
+	Y                      int         `json:"y"`
+	Width                  *int        `json:"width"`
+	Attributes             []Attribute `json:"attributes"`
+	Methods                []Method    `json:"methods"`
+	IsAssociationClass     *bool       `json:"isAssociationClass"`
+	AttachedRelationshipID *string     `json:"attachedRelationshipId"`
 }
 
 // Attribute mirrors DiagramDocument.Attribute.
