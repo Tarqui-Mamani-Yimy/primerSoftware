@@ -406,8 +406,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // withCORS mirrors SecurityConfig's CorsConfigurationSource: the single
-// configured origin, GET/POST/PUT/OPTIONS methods, Authorization and
-// Content-Type headers on /api/**.
+// configured origin, GET/POST/PUT/OPTIONS methods, Content-Type, If-Match, and X-Checkpoint-Message headers on /api/**.
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -417,7 +416,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", s.origin)
 				w.Header().Set("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, X-Checkpoint-Message")
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return
