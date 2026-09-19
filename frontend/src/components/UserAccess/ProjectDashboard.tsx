@@ -43,6 +43,12 @@ export function ProjectDashboard({ userName, projects, onOpenProject, onSignOut 
             <h2 id="assigned-projects-heading" className="font-heading text-xl font-bold text-white">Assigned projects <span className="ml-1 text-sm font-normal text-[#8594a6]">({projects.length})</span></h2>
             <span className="rounded-full border border-[#2b4550] bg-[#102630] px-3 py-1 text-xs font-semibold text-[#6dd9ef]">API data</span>
           </div>
+          {projects.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#2b3b4c] bg-[#101923] p-10 text-center">
+              <p className="text-sm font-semibold text-white">No projects assigned yet</p>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#9aa9ba]">Your workspace is ready. Ask a teammate for an invite, then check back here. You can sign out anytime with the button above.</p>
+            </div>
+          ) : (
           <div className="grid gap-5 lg:grid-cols-3">
             {projects.map(project => (
               <article key={project.id} className="group flex min-h-80 flex-col overflow-hidden rounded-2xl border border-[#293746] bg-[#101923] transition hover:-translate-y-1 hover:border-[#4b6273] hover:shadow-xl hover:shadow-black/20">
@@ -65,6 +71,7 @@ export function ProjectDashboard({ userName, projects, onOpenProject, onSignOut 
               </article>
             ))}
           </div>
+          )}
         </section>
       </div>
     </main>

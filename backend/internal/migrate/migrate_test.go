@@ -8,10 +8,10 @@ import (
 
 func TestMigrationsAreOrderedFlywayStyle(t *testing.T) {
 	migs := migrate.Ordered()
-	if len(migs) < 3 {
-		t.Fatalf("expected at least V1+V2+V3 migrations, got %d", len(migs))
+	if len(migs) < 4 {
+		t.Fatalf("expected at least V1+V2+V3+V4 migrations, got %d", len(migs))
 	}
-	if migs[0].Version != "1" || migs[1].Version != "2" || migs[2].Version != "3" {
+	if migs[0].Version != "1" || migs[1].Version != "2" || migs[2].Version != "3" || migs[3].Version != "4" {
 		t.Fatalf("migrations must apply in Flyway version order, got %v", migs)
 	}
 	for i := 1; i < len(migs); i++ {
@@ -49,6 +49,38 @@ func TestV2ReplicatesConditionalSeedSemantics(t *testing.T) {
 	v2 := migs[1].SQL
 	if !contains(v2, "updated_diagram") || !contains(v2, "version_number, document, created_by") {
 		t.Errorf("V2 must replicate the conditional seed + version-2 insert semantics")
+	}
+}
+
+// TestV4BootstrapsLonelyUsersIdempotently pins the V4 contract without
+// naming any credential material: one personal project (OWNER membership),
+// one empty diagram in the V1 contract shape, and its version-1 row for
+// every user with no membership, keyed off deterministic UUIDs so reruns
+// insert nothing.
+func TestV4BootstrapsLonelyUsersIdempotently(t *testing.T) {
+	migs := migrate.Ordered()
+	if len(migs) < 4 {
+		t.Fatalf("expected V4 migration, got %d migrations", len(migs))
+	}
+	v4 := migs[3].SQL
+	for _, want := range []string{
+		"INSERT INTO projects",
+		"INSERT INTO project_memberships",
+		"INSERT INTO diagrams",
+		"INSERT INTO diagram_versions",
+		"NOT EXISTS",
+		"ON CONFLICT DO NOTHING",
+		"md5(",
+		"'OWNER'",
+		"project_memberships",
+		"schemaVersion",
+	} {
+		if !contains(v4, want) {
+			t.Errorf("V4 must contain bootstrap semantics %q", want)
+		}
+	}
+	if contains(v4, "@") {
+		t.Errorf("V4 must key off generic lonely-user logic, never credential identifiers")
 	}
 }
 
