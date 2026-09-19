@@ -193,15 +193,21 @@ class UmlDocument {
 }
 
 class Project {
-  const Project({required this.id, required this.name, this.description = ''});
+  const Project({required this.id, required this.name, this.description = '', this.role, this.diagramCount = 0, this.accessCode});
   final String id;
   final String name;
   final String description;
+  final String? role;
+  final int diagramCount;
+  final String? accessCode;
 
   factory Project.fromJson(Map<String, dynamic> json) => Project(
         id: json['id'] as String? ?? '',
         name: json['name'] as String? ?? 'Unnamed project',
         description: json['description'] as String? ?? '',
+        role: json['role'] as String?,
+        diagramCount: (json['diagramCount'] as num?)?.toInt() ?? 0,
+        accessCode: json['accessCode'] as String?,
       );
 }
 

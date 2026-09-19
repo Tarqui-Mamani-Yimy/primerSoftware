@@ -80,6 +80,15 @@ class ApiClient {
       .map((item) => Project.fromJson(item as Map<String, dynamic>))
       .toList();
 
+  Future<Project> createProject(String name, {String description = ''}) async =>
+      Project.fromJson(await _request('POST', '/projects', body: {
+        'name': name,
+        if (description.trim().isNotEmpty) 'description': description,
+      }) as Map<String, dynamic>);
+
+  Future<Project> joinProject(String accessCode) async =>
+      Project.fromJson(await _request('POST', '/projects/join', body: {'accessCode': accessCode}) as Map<String, dynamic>);
+
   Future<List<DiagramSummary>> diagrams(String projectId) async =>
       ((await _request('GET', '/projects/$projectId/diagrams')) as List)
           .map((item) => DiagramSummary.fromJson(item as Map<String, dynamic>))
