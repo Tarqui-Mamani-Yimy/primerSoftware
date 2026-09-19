@@ -222,6 +222,12 @@ func normalize(raw domain.DiagramDocument, id string) (domain.DiagramDocument, [
 	if errs := domain.ValidateDiagramInput(raw); len(errs) > 0 {
 		return domain.DiagramDocument{}, nil, ValidationError{Message: strings.Join(errs, "; ")}
 	}
+	// Semantic rules (unique ids, existing endpoints, multiplicity syntax,
+	// realization, association-class attachment) run on every save so invalid
+	// documents never reach the store; the HTTP layer maps this to 400.
+	if errs := domain.ValidateDocument(raw); len(errs) > 0 {
+		return domain.DiagramDocument{}, nil, ValidationError{Message: strings.Join(errs, "; ")}
+	}
 	// save() forces schemaVersion 1 and the path/generated id, ignoring input.
 	doc := domain.DiagramDocument{
 		SchemaVersion: 1, ID: &id, Version: raw.Version,

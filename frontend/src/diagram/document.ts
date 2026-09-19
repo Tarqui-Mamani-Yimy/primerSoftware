@@ -21,9 +21,29 @@ export function validateDiagramDocument(document: UMLDiagramDocument): string[] 
     ids.add(umlClass.id);
     if (!umlClass.name.trim()) errors.push(`Class ${umlClass.id} must have a name`);
   });
+  const associationClassIds = new Set(
+    document.classes.filter((c) => c.isAssociationClass).map((c) => c.id),
+  );
   document.relationships.forEach((relationship) => {
     if (!ids.has(relationship.sourceId) || !ids.has(relationship.targetId)) {
       errors.push(`Relationship ${relationship.id} references a missing class`);
+    }
+    if (
+      associationClassIds.has(relationship.sourceId) ||
+      associationClassIds.has(relationship.targetId)
+    ) {
+      errors.push(`Relationship ${relationship.id} cannot use an association class as an endpoint`);
+    }
+  });
+  document.classes.forEach((umlClass) => {
+    const attachedId = umlClass.attachedRelationshipId?.trim();
+    if (
+      attachedId &&
+      !document.relationships.some((relationship) => relationship.id === attachedId)
+    ) {
+      errors.push(
+        `Class ${umlClass.id} references missing attached relationship ${attachedId}`,
+      );
     }
   });
   return errors;

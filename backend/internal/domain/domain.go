@@ -109,17 +109,22 @@ type CheckpointRequest struct {
 
 // UmlClass mirrors DiagramDocument.UmlClass. Nullable Java fields use pointers
 // without omitempty so they serialize as null, matching Jackson's default.
+// IsAssociationClass and AttachedRelationshipID are the association-class
+// extension: a class may be attached to one existing relationship so the
+// diagram editor can render it at the relationship's midpoint.
 type UmlClass struct {
-	ID           string      `json:"id"`
-	Name         string      `json:"name"`
-	Stereotype   *string     `json:"stereotype"`
-	PackageName  *string     `json:"package"`
-	TableBinding *string     `json:"tableBinding"`
-	X            int         `json:"x"`
-	Y            int         `json:"y"`
-	Width        *int        `json:"width"`
-	Attributes   []Attribute `json:"attributes"`
-	Methods      []Method    `json:"methods"`
+	ID                   string      `json:"id"`
+	Name                 string      `json:"name"`
+	Stereotype           *string     `json:"stereotype"`
+	PackageName          *string     `json:"package"`
+	TableBinding         *string     `json:"tableBinding"`
+	X                    int         `json:"x"`
+	Y                    int         `json:"y"`
+	Width                *int        `json:"width"`
+	Attributes           []Attribute `json:"attributes"`
+	Methods              []Method    `json:"methods"`
+	IsAssociationClass   *bool       `json:"isAssociationClass"`
+	AttachedRelationshipID *string   `json:"attachedRelationshipId"`
 }
 
 // Attribute mirrors DiagramDocument.Attribute.

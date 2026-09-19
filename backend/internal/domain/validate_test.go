@@ -147,3 +147,36 @@ func TestValidateRealizationRequiresInterfaceTarget(t *testing.T) {
 		t.Errorf("expected valid realization, got %v", errs)
 	}
 }
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestValidateAssociationClassAttachment(t *testing.T) {
+	attached := validDoc(rel("rel-1", "order", "customer", "association", nil, nil))
+	attached.Classes = append(attached.Classes, domain.UmlClass{
+		ID: "order-item", Name: "OrderItem", IsAssociationClass: boolPtr(true),
+		AttachedRelationshipID: strPtr("rel-1"),
+	})
+	if errs := domain.ValidateDocument(attached); len(errs) != 0 {
+		t.Errorf("expected valid association-class document, got %v", errs)
+	}
+}
+
+func TestValidateRejectsMissingAttachedRelationship(t *testing.T) {
+	doc := validDoc(rel("rel-1", "order", "customer", "association", nil, nil))
+	doc.Classes = append(doc.Classes, domain.UmlClass{
+		ID: "order-item", Name: "OrderItem", IsAssociationClass: boolPtr(true),
+		AttachedRelationshipID: strPtr("rel-missing"),
+	})
+	assertContains(t, domain.ValidateDocument(doc), "references missing attached relationship rel-missing")
+}
+
+func TestValidateRejectsAssociationClassAsEndpoint(t *testing.T) {
+	doc := validDoc()
+	doc.Classes = append(doc.Classes, domain.UmlClass{
+		ID: "order-item", Name: "OrderItem", IsAssociationClass: boolPtr(true),
+	})
+	doc.Relationships = []domain.Relationship{
+		{ID: "rel-1", SourceID: "order", TargetID: "order-item", Type: "association"},
+	}
+	assertContains(t, domain.ValidateDocument(doc), "cannot use an association class as an endpoint")
+}

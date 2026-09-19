@@ -45,6 +45,10 @@ export interface UMLClassNode {
   methods: UMLMethod[];
   statusText?: string;
   isAbstract?: boolean;
+  /** Association-class extension: marks the class as an association class. */
+  isAssociationClass?: boolean;
+  /** Association-class extension: id of the relationship the class is attached to. */
+  attachedRelationshipId?: string;
 }
 
 export type RelationshipType = 

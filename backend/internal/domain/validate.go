@@ -4,7 +4,9 @@
 // relationship ids, existing endpoints, no self-loops, no duplicate
 // (sourceId, targetId, type) triples, multiplicity syntax, and the
 // realization rule. Error strings match the Java messages verbatim so API
-// 400 bodies stay identical.
+// 400 bodies stay identical. Association-class rules extend the port: an
+// attached relationship must exist, and an association class can never be a
+// relationship endpoint.
 package domain
 
 import (
@@ -40,6 +42,10 @@ func ValidateDocument(doc DiagramDocument) []string {
 		target, targetOK := classesByID[relationship.TargetID]
 		if !sourceOK || !targetOK {
 			errors = append(errors, "Relationship "+relationship.ID+" references a missing class")
+		} else {
+			if isAssociationClass(source) || isAssociationClass(target) {
+				errors = append(errors, "Relationship "+relationship.ID+" cannot use an association class as an endpoint")
+			}
 		}
 		if !IsValidRelationshipType(relationship.Type) {
 			errors = append(errors, "Relationship "+relationship.ID+" has unsupported type: "+relationship.Type)
@@ -60,7 +66,20 @@ func ValidateDocument(doc DiagramDocument) []string {
 			errors = append(errors, "Realization requires a non-interface, non-enum source and an interface target")
 		}
 	}
+
+	for _, class := range doc.Classes {
+		if class.AttachedRelationshipID == nil || strings.TrimSpace(*class.AttachedRelationshipID) == "" {
+			continue
+		}
+		if _, exists := relIDs[*class.AttachedRelationshipID]; !exists {
+			errors = append(errors, "Class "+class.ID+" references missing attached relationship "+*class.AttachedRelationshipID)
+		}
+	}
 	return errors
+}
+
+func isAssociationClass(class UmlClass) bool {
+	return class.IsAssociationClass != nil && *class.IsAssociationClass
 }
 
 func validateMultiplicity(errors *[]string, relationshipID, endpoint string, value *string) {
