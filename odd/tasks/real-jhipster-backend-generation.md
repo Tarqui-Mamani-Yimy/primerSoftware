@@ -57,7 +57,7 @@ Manifest (solo archivos que existen tras generar):
 ```json
 {
   "generator": { "name": "generator-jhipster", "version": "9.4.0",
-                 "invocation": "pnpm dlx generator-jhipster@9.4.0 jdl model.jdl --force --skip-install" },
+                 "invocation": "pnpm dlx --ignore-scripts generator-jhipster@9.4.0 jdl model.jdl --force --skip-install" },
   "generatedAt": "RFC3339 UTC",
   "baseName": "...", "packageName": "...",
   "entities": [], "relationships": [],
@@ -83,17 +83,40 @@ Timeout de generación: 10 min; timeout → `502` "generation timed out".
 - Servicio inyecta un runner de comandos (interface) para testear sin pnpm real; la verificación focal
   real corre el flujo completo en temp.
 
+## Hallazgos de verificación real (T-6, JHipster 9.4.0)
+
+Verificación focal ejecutada con `pnpm dlx` en `/tmp/opencode/jhipster-check` el 20-sep-2026.
+Todos los fixes fueron aplicados al código y se validó el shape completo (app + entidades + enum +
+relación OneToMany → `Alpha.java` con `BigDecimal total`, `Color color`, `Set<Beta> betas`; changelogs
+Liquibase; `enumeration/Color.java`):
+
+1. **pnpm 12 gate de build scripts**: `ERR_PNPM_IGNORED_BUILDS` (unrs-resolver@1.12.2) aborta `pnpm dlx`
+   por defecto; `pnpm-workspace.yaml` con `onlyBuiltDependencies` NO aplica al proyecto efímero de dlx.
+   Fix: `pnpm dlx --ignore-scripts ...` — JHipster 9.4.0 funciona sin ese postinstall (binarios
+   prebuilt). Actualizado en `invocation()` + test.
+2. **JDL gramática v9**: `baseName "UmlArchitect"` y `packageName "com.umlarchitect"` (con comillas) son
+   ERROR de parseo ("A name is expected..."). Fix: emitir SIN comillas. Actualizado en
+   `renderApplicationBlock` + test.
+3. **JHipster 9 exige `entities` dentro del bloque application**: sin bloque app → error "The JDL object
+   and its application's name are mandatory"; con app pero entidad fuera del bloque → la entidad se
+   descarta en silencio (ni warning). Fix: `renderApplicationBlock(o, entities)` emite
+   `  entities Alpha, Beta` dentro del bloque, derivado de `rep.Entities` (misma fuente que el JDL).
+   Enums y relaciones siguen fuera del bloque (válido, verificado).
+
 ## Checklist
 
 - [x] T-1 documento de tracking creado (este archivo) — commit docs-only inmediato.
-- [ ] T-2 exploración: router/service/auth/store + goldens de jdlgen + contrato mock frontend (solo referencia) + versión JHipster fijada en registry.
-- [ ] T-3 jdlgen: `ExportArtifact` + bloque application + validación de config + warnings abstract/assoc + tests.
-- [ ] T-4 servicio de generación aislado: temp dir, runner inyectado, manifest, ZIP + tests.
-- [ ] T-5 httpapi: endpoint POST + auth + membership + mapeo de errores + tests.
-- [ ] T-6 verificación focal real (`pnpm dlx generator-jhipster@9.4.0 ...`) si el entorno permite; fixes.
+- [x] T-2 exploración: router/service/auth/store + goldens de jdlgen + contrato mock frontend (solo referencia) + versión JHipster fijada en registry.
+- [x] T-3 jdlgen: `ExportArtifact` + bloque application (con `entities`) + validación de config + warnings abstract/assoc + tests.
+- [x] T-4 servicio de generación aislado: temp dir, runner inyectado, manifest, ZIP + tests.
+- [x] T-5 httpapi: endpoint POST + auth + membership + mapeo de errores + tests.
+- [x] T-6 verificación focal real ejecutada (`pnpm dlx --ignore-scripts generator-jhipster@9.4.0`); 3 fixes aplicados y revalidados end-to-end.
 - [ ] T-7 reporte final: endpoint/contrato, versión exacta JHipster, comandos pnpm, commits, checks pendientes.
 
 ## Ruta de delegación (evidencia)
 
-- [ ] Registrar por tarea: inline o delegada (trigger: mapeo 4+ archivos, writer 2+ archivos no triviales).
-- [ ] Sub-agentes: chequear disponibilidad del tool `task`; si no está disponible, inline con evidencia acá.
+- [x] T-2 mapeo: delegación intentada (explore agent) → NO disponible: "OpenCode's free tier can only be used
+  from within OpenCode" (error de provider). Mapeo inline con lecturas acotadas; evidencia registrada acá.
+- [x] T-3..T-5 escritura: delegación intentada → misma indisponibilidad de sub-agents; writer inline con
+  comandos acotados y `gofmt -l` como check de formato (sin go build/test: los corre el usuario). Evidencia: fallo de provider reproducido en el intento T-2.
+- [x] T-6 verificación: inline (bash), autorizada por el usuario como verificación focal; fixes aplicados inline.
