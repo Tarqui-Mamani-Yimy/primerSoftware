@@ -114,6 +114,8 @@ export const es = {
     targetMultiplicity: 'Multiplicidad de destino',
     saveRelationship: 'Guardar relación',
     deleteRelationship: 'Eliminar relación',
+    deleteClass: 'Eliminar clase',
+    deleteClassConfirm: (name: string, relationshipCount: number) => `¿Eliminar la clase «${name}»? También se eliminarán ${relationshipCount} relación${relationshipCount === 1 ? '' : 'es'} conectada${relationshipCount === 1 ? '' : 's'}.`,
     closeInspector: 'Cerrar inspector de relación',
     invalidMultiplicity: 'Usá, por ejemplo: 1, *, 0..1 o 1..*.',
     fixMultiplicity: 'Corregí las multiplicidades antes de guardar.',

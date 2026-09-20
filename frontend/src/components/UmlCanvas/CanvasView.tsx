@@ -209,7 +209,7 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
               {es.canvas.version(version.versionNumber)}
               <span className="ml-2 text-[10px] text-[#86948a]">{new Date(version.createdAt).toLocaleString()}</span>
               <span className="ml-2 text-[10px] text-[#4edea3]">{version.createdBy ? version.createdBy.slice(0, 12) : 'anónimo'}</span>
-              {version.message && <span className="ml-2 text-[10px] text-[#bbcabf]">{version.message}</span>
+              {version.message && <span className="ml-2 text-[10px] text-[#bbcabf]">{version.message}</span>}
             </button>)}
           </div>}
         </div>}
@@ -323,7 +323,7 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
         onClose={() => props.onSelectRelationship('')}
       />
     ) : selected ? (
-      <Inspector selectedClass={selected} onUpdateClass={(umlClass) => { props.onUpdateClass(umlClass); props.onPersistChange(); }} onClose={() => props.onSelectClass('')} onGenerateCode={props.onSwitchToBackend} classes={props.classes} relationships={props.relationships} />
+      <Inspector selectedClass={selected} onUpdateClass={(umlClass) => { props.onUpdateClass(umlClass); props.onPersistChange(); }} onDeleteClass={props.onDeleteClass} onClose={() => props.onSelectClass('')} onGenerateCode={props.onSwitchToBackend} classes={props.classes} relationships={props.relationships} />
     ) : null}
   </div>;
 };

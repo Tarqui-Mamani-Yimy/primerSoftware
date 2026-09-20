@@ -7,6 +7,7 @@ interface InspectorProps {
   onUpdateClass: (updated: UMLClassNode) => void;
   onClose: () => void;
   onGenerateCode: () => void;
+  onDeleteClass: (id: string) => void;
   classes: UMLClassNode[];
   relationships: UMLRelationship[];
 }
@@ -16,6 +17,7 @@ export const Inspector: React.FC<InspectorProps> = ({
   onUpdateClass,
   onClose,
   onGenerateCode,
+  onDeleteClass,
   classes,
   relationships
 }) => {
@@ -24,6 +26,7 @@ export const Inspector: React.FC<InspectorProps> = ({
   const [newAttrName, setNewAttrName] = useState('');
   const [newAttrType, setNewAttrType] = useState('String');
   const [newAttrVisibility, setNewAttrVisibility] = useState<'+' | '-' | '#'>('+');
+  const connectedRelationshipCount = relationships.filter((relationship) => relationship.sourceId === selectedClass.id || relationship.targetId === selectedClass.id).length;
 
   const handleUpdateField = <K extends keyof UMLClassNode>(field: K, value: UMLClassNode[K]) => {
     onUpdateClass({
@@ -81,6 +84,11 @@ export const Inspector: React.FC<InspectorProps> = ({
   const handleSave = () => {
     setSaveFeedback(true);
     setTimeout(() => setSaveFeedback(false), 1800);
+  };
+
+  const handleDeleteClass = () => {
+    if (!window.confirm(es.canvas.deleteClassConfirm(selectedClass.name, connectedRelationshipCount))) return;
+    onDeleteClass(selectedClass.id);
   };
 
   // An association class attaches to a relationship whose endpoints are both
@@ -173,6 +181,7 @@ export const Inspector: React.FC<InspectorProps> = ({
                 onChange={(e) => handleUpdateField('tableBinding', e.target.value)}
               />
             </div>
+
           </div>
         </div>
 
@@ -373,6 +382,16 @@ export const Inspector: React.FC<InspectorProps> = ({
       </div>
 
       {/* Inspector Footer */}
+      <div className="border-t border-[#3c4a42] bg-[#1c2028] p-3">
+        <button
+          type="button"
+          onClick={handleDeleteClass}
+          aria-label={`${es.canvas.deleteClass}: ${selectedClass.name}`}
+          className="w-full border border-[#ffb4ab] px-3 py-2 text-xs font-bold uppercase text-[#ffb4ab] transition-colors hover:bg-[#3a2529] focus:outline-none focus:ring-2 focus:ring-[#ffb4ab]"
+        >
+          {es.canvas.deleteClass}
+        </button>
+      </div>
       <div className="p-2.5 bg-[#1c2028] border-t border-[#3c4a42] flex items-center justify-between font-mono">
         <span className="text-xs text-[#bbcabf]">
           Sincronización del esquema: <strong className="text-[#4edea3]">Automática</strong>

@@ -420,7 +420,6 @@ export default function App() {
   };
 
   const handleDeleteClass = (id: string) => {
-    if (classes.length <= 1) return;
     const nextClasses = classesRef.current.filter(c => c.id !== id);
     const nextRelationships = relationshipsRef.current.filter(r => r.sourceId !== id && r.targetId !== id);
     const remainingRelIds = new Set(nextRelationships.map(r => r.id));
@@ -435,10 +434,9 @@ export default function App() {
     setRelationships(nextRelationships);
     scheduleSave(nextClassesFixed, nextRelationships);
     if (selectedClassId === id) {
-      const remaining = classesRef.current.filter(c => c.id !== id);
-      if (remaining.length > 0) setSelectedClassId(remaining[0].id);
+      setSelectedClassId('');
     }
-    if (selectedRelationshipId && nextRelationships.every(r => r.id !== selectedRelationshipId)) setSelectedRelationshipId('');
+    setSelectedRelationshipId('');
   };
 
   const handleRenameDiagram = (name: string) => {
