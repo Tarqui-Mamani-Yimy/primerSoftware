@@ -10,6 +10,11 @@ interface BackendGeneratorViewProps {
   document: UMLDiagramDocument;
 }
 
+interface GeneratedArtifact {
+  artifact: BackendArtifactResult;
+  manifest: ArtifactManifest | null;
+}
+
 interface ArtifactManifest {
   generator?: { name?: string; version?: string; invocation?: string };
   generatedAt?: string;
@@ -25,6 +30,18 @@ interface ArtifactManifest {
 
 type GenerationPhase = 'idle' | 'generating' | 'success' | 'error';
 
+const sanitizeGenerationError = (error: unknown): string => {
+  if (!(error instanceof ApiError)) return es.generator.generationUnavailable;
+
+  if (error.status === 400) return es.generator.generationInvalidRequest;
+  if (error.status === 401) return es.generator.generationUnauthorized;
+  if (error.status === 403) return es.generator.generationForbidden;
+  if (error.status === 404) return es.generator.generationNotFound;
+  if (error.status === 409) return es.generator.generationConflict;
+  if (error.status === 429) return es.generator.generationRateLimited;
+  return es.generator.generationUnavailable;
+};
+
 export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
   projectId,
   diagramId,
@@ -36,18 +53,18 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
   const [authenticationType] = useState<'jwt'>('jwt');
   const [phase, setPhase] = useState<GenerationPhase>('idle');
   const [errorMessage, setErrorMessage] = useState('');
-  const [result, setResult] = useState<{ filename: string; manifest: ArtifactManifest | null } | null>(null);
+  const [result, setResult] = useState<GeneratedArtifact | null>(null);
 
   const canGenerate = Boolean(projectId && diagramId);
 
   const triggerDownload = (r: BackendArtifactResult) => {
     const url = window.URL.createObjectURL(r.blob);
-    const link = document.createElement('a');
+    const link = window.document.createElement('a');
     link.href = url;
     link.download = r.filename;
-    document.body.appendChild(link);
+    window.document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    window.document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
   };
 
@@ -71,23 +88,18 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
     setResult(null);
     const config: ArtifactConfig = { baseName, packageName, buildTool, authenticationType };
     try {
-      const response = await artifactApi.generate(projectId, diagramId, document, config);
-      triggerDownload(response);
-      setResult({ filename: response.filename, manifest: await readManifest(response.blob) });
+      const artifact = await artifactApi.generate(projectId, diagramId, document, config);
+      const manifest = await readManifest(artifact.blob);
+      setResult({ artifact, manifest });
       setPhase('success');
     } catch (err) {
       setPhase('error');
-      setErrorMessage(
-        err instanceof ApiError && err.payload?.message
-          ? err.payload.message
-          : err instanceof Error
-            ? err.message
-            : 'Error'
-      );
+      setErrorMessage(sanitizeGenerationError(err));
     }
   };
 
   const manifest = result?.manifest;
+  const canDownload = phase === 'success' && result !== null;
   const entities = manifest?.entities ?? [];
   const warnings = manifest?.warnings ?? [];
   const skipped = manifest?.skipped ?? [];
@@ -116,6 +128,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
           <button
             onClick={() => { void handleGenerate(); }}
             disabled={!canGenerate || phase === 'generating'}
+            aria-busy={phase === 'generating'}
             className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#4edea3] text-black font-heading text-xs font-bold uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
             title={!canGenerate ? es.generator.noDiagram : undefined}
           >
@@ -123,8 +136,19 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
               {phase === 'generating' ? 'hourglass_top' : 'archive'}
             </span>
             <span>{phase === 'generating' ? es.generator.generating : es.generator.generateCta}</span>
-            {phase === 'success' && <span className="material-symbols-outlined text-xs">check_circle</span>}
           </button>
+          <button
+            onClick={() => result && triggerDownload(result.artifact)}
+            disabled={!canDownload}
+            aria-describedby={!canDownload ? 'download-backend-help' : undefined}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#4cd7f6] text-black font-heading text-xs font-bold uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+          >
+            <span className="material-symbols-outlined text-sm">download</span>
+            <span>{es.generator.downloadCta}</span>
+          </button>
+          <span id="download-backend-help" className="sr-only">
+            {canDownload ? es.generator.downloadReady : es.generator.downloadDisabledHint}
+          </span>
         </div>
       </div>
 
@@ -202,7 +226,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
           )}
 
           {phase === 'generating' && (
-            <div className="flex flex-col items-center justify-center gap-3 p-10 text-center border border-[#3c4a42] bg-[#181c24] font-mono text-xs">
+            <div role="status" aria-live="polite" className="flex flex-col items-center justify-center gap-3 p-10 text-center border border-[#3c4a42] bg-[#181c24] font-mono text-xs">
               <span className="material-symbols-outlined text-3xl text-[#4edea3] animate-pulse">hourglass_top</span>
               <p className="text-[#4edea3] font-bold">{es.generator.generating}</p>
               <p className="text-[#86948a]">{es.generator.generatingNote}</p>
@@ -210,7 +234,7 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
           )}
 
           {phase === 'error' && (
-            <div className="p-3 bg-[#2a1418] border border-[#7f2b33] font-mono text-xs">
+            <div role="alert" className="p-3 bg-[#2a1418] border border-[#7f2b33] font-mono text-xs">
               <div className="flex items-center gap-1.5 text-[#ff7b85] font-bold mb-1">
                 <span className="material-symbols-outlined text-sm">error</span>
                 {es.generator.generationFailed}
@@ -224,8 +248,8 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
               <div className="flex items-start gap-2 p-3 bg-[#12241b] border border-[#2f6b45] font-mono text-xs">
                 <span className="material-symbols-outlined text-sm text-[#4edea3]">download_done</span>
                 <div>
-                  <div className="text-[#4edea3] font-bold">{es.generator.downloadTriggered}</div>
-                  <div className="text-[#bbcabf] break-all">{result.filename}</div>
+                  <div className="text-[#4edea3] font-bold">{es.generator.generationSucceeded}</div>
+                  <div className="text-[#bbcabf] break-all">{result.artifact.filename}</div>
                 </div>
               </div>
 
