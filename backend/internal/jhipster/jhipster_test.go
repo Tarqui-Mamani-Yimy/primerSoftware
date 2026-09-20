@@ -21,10 +21,13 @@ import (
 )
 
 // fakeRunner simulates the pinned generator: it records the invoked command
-// and materializes the files it "generated" into the workdir.
+// and materializes the files it "generated" into the workdir. contents is
+// optional; when absent a file gets a placeholder byte so the flow can be
+// tested without the generator.
 type fakeRunner struct {
 	calls          []string
 	generatedFiles []string
+	contents       map[string]string
 	out            string
 	err            error
 }
@@ -44,7 +47,11 @@ func (f *fakeRunner) Run(ctx context.Context, dir, name string, args ...string) 
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		body := "x"
+		if c, ok := f.contents[rel]; ok {
+			body = c
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 			return "", err
 		}
 	}
@@ -93,13 +100,65 @@ func keys(m map[string][]byte) []string {
 }
 
 func TestGenerateProducesZipWithManifest(t *testing.T) {
-	runner := &fakeRunner{generatedFiles: []string{
-		"pom.xml",
-		".yo-rc.json",
-		"src/main/java/com/umlarchitect/Alpha.java",
-		"node_modules/pkg/index.js", // must be excluded
-		".git/config",               // must be excluded
-	}}
+	// The provisioned Spring config files must carry the exact anchors the
+	// sqlgen patch operates on; placeholder content would fail the patch and
+	// surface a provisioning error instead of an artifact.
+	devYml := `spring:
+  devtools:
+    restart:
+      enabled: true
+  datasource:
+    type: com.zaxxer.hikari.HikariDataSource
+    url: jdbc:postgresql://localhost:5432/UmlArchitect
+    hikari:
+      poolName: Hikari
+      auto-commit: false
+  liquibase:
+    contexts: dev, faker
+`
+	prodYml := `spring:
+  datasource:
+    type: com.zaxxer.hikari.HikariDataSource
+    url: jdbc:postgresql://localhost:5432/UmlArchitect
+    hikari:
+      poolName: Hikari
+      auto-commit: false
+  liquibase:
+    contexts: prod
+`
+	secretsYml := `spring:
+  datasource:
+    username: UmlArchitect
+    password:
+`
+	appYml := `spring:
+  application:
+    name: UmlArchitect
+  docker:
+    compose:
+      enabled: true
+      lifecycle-management: start-only
+      file: src/main/docker/services.yml
+`
+	runner := &fakeRunner{
+		generatedFiles: []string{
+			"pom.xml",
+			".yo-rc.json",
+			"src/main/java/com/umlarchitect/Alpha.java",
+			"node_modules/pkg/index.js", // must be excluded
+			".git/config",               // must be excluded
+			"src/main/resources/config/application-dev.yml",
+			"src/main/resources/config/application-prod.yml",
+			"src/main/resources/config/application-secret-samples.yml",
+			"src/main/resources/config/application.yml",
+		},
+		contents: map[string]string{
+			"src/main/resources/config/application-dev.yml":            devYml,
+			"src/main/resources/config/application-prod.yml":           prodYml,
+			"src/main/resources/config/application-secret-samples.yml": secretsYml,
+			"src/main/resources/config/application.yml":                appYml,
+		},
+	}
 	g := &Generator{Runner: runner, Version: Version, Timeout: 0}
 	res, err := g.Generate(context.Background(), alphaDoc(), jdlgen.DefaultOptions())
 	if err != nil {
@@ -120,9 +179,34 @@ func TestGenerateProducesZipWithManifest(t *testing.T) {
 		"UmlArchitect/.yo-rc.json",
 		"UmlArchitect/src/main/java/com/umlarchitect/Alpha.java",
 		"UmlArchitect/model.jdl",
+		"UmlArchitect/compose.yml",
+		"UmlArchitect/database/uml-architect.sql",
 	} {
 		if _, ok := entries[want]; !ok {
 			t.Errorf("zip missing entry %q (have %v)", want, keys(entries))
+		}
+	}
+	// The init SQL must be the rendered schema, not a placeholder.
+	initSQL := string(entries["UmlArchitect/database/uml-architect.sql"])
+	for _, want := range []string{
+		"CREATE SEQUENCE IF NOT EXISTS sequence_generator",
+		"CREATE TABLE IF NOT EXISTS jhi_user (",
+		"CREATE TABLE IF NOT EXISTS alpha (",
+		"    total decimal(21,2)",
+		"INSERT INTO jhi_authority (name) VALUES ('ROLE_ADMIN'), ('ROLE_USER')",
+	} {
+		if !strings.Contains(initSQL, want) {
+			t.Errorf("init SQL missing %q:\n%s", want, initSQL)
+		}
+	}
+	// The patched configs must ship with the provisioned datasource.
+	for path, want := range map[string]string{
+		"UmlArchitect/src/main/resources/config/application-dev.yml":            "url: jdbc:postgresql://localhost:5432/uml-architect",
+		"UmlArchitect/src/main/resources/config/application.yml":                "enabled: false # ai-uml-architect: database is provisioned by database/compose.yml",
+		"UmlArchitect/src/main/resources/config/application-secret-samples.yml": "username: devuser",
+	} {
+		if !strings.Contains(string(entries[path]), want) {
+			t.Errorf("%s missing %q after provisioning:\n%s", path, want, entries[path])
 		}
 	}
 	for _, no := range []string{"node_modules", ".git"} {
@@ -146,14 +230,26 @@ func TestGenerateProducesZipWithManifest(t *testing.T) {
 	if m.BaseName != "UmlArchitect" || m.PackageName != "com.umlarchitect" {
 		t.Errorf("identity = %s/%s", m.BaseName, m.PackageName)
 	}
+	if m.DatabaseName != "uml-architect" || m.SQLFileName != "database/uml-architect.sql" {
+		t.Errorf("database provisioning = %s/%s", m.DatabaseName, m.SQLFileName)
+	}
+	if !reflect.DeepEqual(m.RunCommands, []string{"docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
+		t.Errorf("runCommands = %v", m.RunCommands)
+	}
 	if !reflect.DeepEqual(m.Entities, []string{"Alpha"}) {
 		t.Errorf("entities = %v", m.Entities)
 	}
 	wantFiles := []string{
 		".yo-rc.json",
+		"compose.yml",
+		"database/uml-architect.sql",
 		"model.jdl",
 		"pom.xml",
 		"src/main/java/com/umlarchitect/Alpha.java",
+		"src/main/resources/config/application-dev.yml",
+		"src/main/resources/config/application-prod.yml",
+		"src/main/resources/config/application-secret-samples.yml",
+		"src/main/resources/config/application.yml",
 	}
 	if !reflect.DeepEqual(m.Files, wantFiles) {
 		t.Errorf("files = %v, want %v", m.Files, wantFiles)
@@ -163,6 +259,33 @@ func TestGenerateProducesZipWithManifest(t *testing.T) {
 	}
 	if m.GeneratedAt == "" {
 		t.Errorf("generatedAt missing")
+	}
+}
+
+func TestRunCommandsPerBuildTool(t *testing.T) {
+	if got := runCommands("gradle"); !reflect.DeepEqual(got, []string{"docker compose up -d", "./gradlew", "./gradlew -Pprod"}) {
+		t.Errorf("runCommands(gradle) = %v", got)
+	}
+	if got := runCommands("maven"); !reflect.DeepEqual(got, []string{"docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
+		t.Errorf("runCommands(maven) = %v", got)
+	}
+	if got := runCommands("anything-else"); !reflect.DeepEqual(got, []string{"docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
+		t.Errorf("runCommands(unknown) = %v", got)
+	}
+}
+
+func TestGenerateProvisioningFailureSurfacesError(t *testing.T) {
+	// The runner succeeds but the scaffold lacks src/main/resources/config, so
+	// provisioning must fail loudly instead of shipping an artifact without
+	// the database wiring.
+	runner := &fakeRunner{generatedFiles: []string{"pom.xml", ".yo-rc.json"}}
+	g := &Generator{Runner: runner, Version: Version, Timeout: 0}
+	_, err := g.Generate(context.Background(), alphaDoc(), jdlgen.DefaultOptions())
+	if err == nil {
+		t.Fatal("expected provisioning error when config files are missing")
+	}
+	if !strings.Contains(err.Error(), "application") || !strings.Contains(err.Error(), ".yml") {
+		t.Errorf("error must name the missing config file, got: %v", err)
 	}
 }
 

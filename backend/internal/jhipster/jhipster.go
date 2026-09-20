@@ -31,6 +31,7 @@ import (
 
 	"github.com/ai-uml-architect/gobackend/internal/domain"
 	"github.com/ai-uml-architect/gobackend/internal/jdlgen"
+	"github.com/ai-uml-architect/gobackend/internal/sqlgen"
 )
 
 // Version is the pinned generator-jhipster release. It is a deliberate pin:
@@ -79,10 +80,12 @@ func NewGenerator() *Generator {
 }
 
 // Generate validates the application options, exports the JDL, runs the
-// pinned JHipster generator in an isolated temp dir, and packages the files
-// that exist after generation into a ZIP with a provenance manifest.
+// pinned JHipster generator in an isolated temp dir, provisions a local
+// PostgreSQL (init SQL, compose file, Spring config patches), and packages
+// the files that exist after generation into a ZIP with a provenance
+// manifest.
 func (g *Generator) Generate(ctx context.Context, doc domain.DiagramDocument, o jdlgen.Options) (Result, error) {
-	jdl, rep, err := jdlgen.ExportArtifact(doc, o)
+	jdl, model, rep, err := jdlgen.ExportArtifactModel(doc, o)
 	if err != nil {
 		return Result{}, err
 	}
@@ -111,6 +114,14 @@ func (g *Generator) Generate(ctx context.Context, doc domain.DiagramDocument, o 
 		return Result{}, classifyRunnerFailure(ctx, err, out, workDir, genVersion, g.Timeout)
 	}
 
+	slug, err := sqlgen.Slugify(o.BaseName)
+	if err != nil {
+		return Result{}, fmt.Errorf("derive database name: %w", err)
+	}
+	if err := provisionDatabase(workDir, model, slug, o.BaseName); err != nil {
+		return Result{}, err
+	}
+
 	files, err := listGenerated(workDir)
 	if err != nil {
 		return Result{}, fmt.Errorf("list generated files: %w", err)
@@ -121,6 +132,9 @@ func (g *Generator) Generate(ctx context.Context, doc domain.DiagramDocument, o 
 		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
 		BaseName:      o.BaseName,
 		PackageName:   o.PackageName,
+		DatabaseName:  slug,
+		SQLFileName:   "database/" + slug + ".sql",
+		RunCommands:   runCommands(o.BuildTool),
 		Entities:      rep.Entities,
 		Relationships: rep.Relationships,
 		Warnings:      rep.Warnings,
@@ -134,6 +148,40 @@ func (g *Generator) Generate(ctx context.Context, doc domain.DiagramDocument, o 
 		return Result{}, fmt.Errorf("package zip: %w", err)
 	}
 	return Result{FileName: o.BaseName + "-jhipster-backend.zip", Content: content}, nil
+}
+
+// provisionDatabase writes the Docker Compose file and the init SQL script
+// for the local PostgreSQL inside the generated project, then patches the
+// Spring Boot datasource config so the app boots against that container with
+// Liquibase disabled (the SQL script is applied by the postgres entrypoint).
+// The patched yml files and the two new files are picked up by listGenerated
+// and shipped in the artifact, so the snapshots stay consistent.
+func provisionDatabase(workDir string, model jdlgen.Model, slug, baseName string) error {
+	dbDir := filepath.Join(workDir, "database")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		return fmt.Errorf("create database dir: %w", err)
+	}
+	sql := sqlgen.RenderSQL(model)
+	if err := os.WriteFile(filepath.Join(dbDir, slug+".sql"), []byte(sql), 0o644); err != nil {
+		return fmt.Errorf("write database %s: %w", slug+".sql", err)
+	}
+	compose := sqlgen.RenderCompose(slug)
+	if err := os.WriteFile(filepath.Join(workDir, "compose.yml"), []byte(compose), 0o644); err != nil {
+		return fmt.Errorf("write compose.yml: %w", err)
+	}
+	if err := sqlgen.PatchApplicationConfig(workDir, baseName, slug); err != nil {
+		return err
+	}
+	return nil
+}
+
+// runCommands returns the exact commands a user runs after unzipping the
+// artifact, derived from the build tool JHipster scaffolds.
+func runCommands(buildTool string) []string {
+	if buildTool == "gradle" {
+		return []string{"docker compose up -d", "./gradlew", "./gradlew -Pprod"}
+	}
+	return []string{"docker compose up -d", "./mvnw", "./mvnw -Pprod"}
 }
 
 func invocation(version string) string {
@@ -297,12 +345,18 @@ func listGenerated(root string) ([]string, error) {
 }
 
 // Manifest is the artifact's machine-readable provenance record. Files lists
-// exactly the files physically present after generation.
+// exactly the files physically present after generation. DatabaseName,
+// SQLFileName, and RunCommands describe the local PostgreSQL included in the
+// artifact (`docker compose up -d` starts it with the schema preloaded; the
+// generated app then boots unmodified against it).
 type Manifest struct {
 	Generator     ManifestGenerator `json:"generator"`
 	GeneratedAt   string            `json:"generatedAt"`
 	BaseName      string            `json:"baseName"`
 	PackageName   string            `json:"packageName"`
+	DatabaseName  string            `json:"databaseName"`
+	SQLFileName   string            `json:"sqlFileName"`
+	RunCommands   []string          `json:"runCommands"`
 	Entities      []string          `json:"entities"`
 	Relationships []string          `json:"relationships"`
 	Warnings      []string          `json:"warnings"`
