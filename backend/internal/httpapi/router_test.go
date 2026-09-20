@@ -25,6 +25,7 @@ func TestRouteTableMatchesPublicContract(t *testing.T) {
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams"},
 		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}"},
 		{Method: http.MethodPut, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/checkpoints"},
 		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions"},
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore"},
 	}
