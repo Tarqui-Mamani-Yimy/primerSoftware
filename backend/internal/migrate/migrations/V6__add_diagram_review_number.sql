@@ -13,44 +13,26 @@
 -- `diagrams.review_number` is bumped on every successful save (autosave
 -- or explicit checkpoint).
 --
--- Backfill design notes:
---  * Both columns are added nullable so the ALTER never errors on
---    legacy rows.
---  * The per-diagram `diagram_versions` ROW_NUMBER backfill runs in
---    the same transaction as the CREATE COLUMN, guaranteeing no
---    concurrent INSERT can land between the add and the backfill.
---    Legacy version rows therefore land at 1, 2, 3, … per diagram,
---    matching the per-diagram timeline that the application enforces.
---  * `diagrams.review_number` is then seeded from the per-diagram
---    MAX(version row's review_number) so the row's working counter
---    points one past the last snapshot at migration time.
---  * Both columns are tightened to NOT NULL DEFAULT 1 so the
---    application code never reads NULL.
---  * Idempotency: each block is wrapped with `IF NOT EXISTS` /
---    `IF col IS NULL` so re-running V6 on a partially-migrated DB
---    is a no-op (the file is safe to interleave with the running app
---    across migration interruptions).
+-- Backfill order matters: any statement that reads
+-- `diagram_versions.review_number` MUST run AFTER
+-- `ALTER TABLE diagram_versions ADD COLUMN review_number`. Earlier
+-- revisions of this file started by adding the diagrams column and
+-- then tried to `SELECT MAX(v.review_number)` while that column was
+-- still missing, so V6 was a no-op or failed on a fresh DB.
+--
+-- Pre-V6 schema had no counter columns. After V6:
+--   diagrams.review_number          : NOT NULL DEFAULT 1
+--   diagram_versions.review_number  : NOT NULL DEFAULT 1
+-- Existing rows are seeded so the working row points one past the
+-- latest snapshot at migration time. Idempotent: every ALTER/UPDATE is
+-- guarded so re-running V6 is safe.
 
--- diagrams.review_number
-ALTER TABLE diagrams
-  ADD COLUMN IF NOT EXISTS review_number BIGINT;
-
-UPDATE diagrams d
-  SET review_number = COALESCE((
-    SELECT MAX(v.review_number)
-    FROM diagram_versions v
-    WHERE v.diagram_id = d.id
-  ), 1)
-  WHERE d.review_number IS NULL;
-
-ALTER TABLE diagrams
-  ALTER COLUMN review_number SET NOT NULL,
-  ALTER COLUMN review_number SET DEFAULT 1;
-
--- diagram_versions.review_number
+-- 1. diagram_versions.review_number first.
 ALTER TABLE diagram_versions
   ADD COLUMN IF NOT EXISTS review_number BIGINT;
 
+-- 2. ROW_NUMBER backfill so each version row gets a deterministic
+--    per-diagram review number, then collapse leftover NULLs to 1.
 WITH ranked AS (
   SELECT id, ROW_NUMBER() OVER (PARTITION BY diagram_id ORDER BY version_number) AS rn
   FROM diagram_versions
@@ -69,6 +51,28 @@ ALTER TABLE diagram_versions
   ALTER COLUMN review_number SET NOT NULL,
   ALTER COLUMN review_number SET DEFAULT 1;
 
--- drivers: latest review for a diagram.
+-- 3. diagrams.review_number second: seeded from MAX(version_row review)
+--    so the working row points one past the latest snapshot, then NULLs
+--    collapse to 1 (brand-new diagram that never reached a checkpoint).
+ALTER TABLE diagrams
+  ADD COLUMN IF NOT EXISTS review_number BIGINT;
+
+UPDATE diagrams d
+  SET review_number = COALESCE((
+    SELECT MAX(v.review_number)
+    FROM diagram_versions v
+    WHERE v.diagram_id = d.id
+  ), 1)
+  WHERE d.review_number IS NULL;
+
+UPDATE diagrams
+  SET review_number = 1
+  WHERE review_number IS NULL;
+
+ALTER TABLE diagrams
+  ALTER COLUMN review_number SET NOT NULL,
+  ALTER COLUMN review_number SET DEFAULT 1;
+
+-- 4. Driver-friendly index for "latest review for this diagram".
 CREATE INDEX IF NOT EXISTS idx_diagram_versions_diagram_review
   ON diagram_versions(diagram_id, review_number DESC);
