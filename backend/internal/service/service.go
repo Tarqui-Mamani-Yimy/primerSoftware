@@ -85,6 +85,7 @@ func (e ValidationError) Error() string { return e.Message }
 type Service struct {
 	store     store.Store
 	broadcast DiagramPresenceBroadcaster
+	jhipGen   ArtifactGenerator
 }
 
 // Store returns the underlying store the service is bound to. Realtime

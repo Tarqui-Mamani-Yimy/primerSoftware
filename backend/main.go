@@ -18,6 +18,7 @@ import (
 	"github.com/ai-uml-architect/gobackend/internal/config"
 	"github.com/ai-uml-architect/gobackend/internal/domain"
 	"github.com/ai-uml-architect/gobackend/internal/httpapi"
+	"github.com/ai-uml-architect/gobackend/internal/jhipster"
 	"github.com/ai-uml-architect/gobackend/internal/migrate"
 	"github.com/ai-uml-architect/gobackend/internal/realtime"
 	"github.com/ai-uml-architect/gobackend/internal/service"
@@ -55,7 +56,7 @@ func main() {
 	defer pool.Close()
 
 	st := store.NewPostgres(pool)
-	svc := service.New(st)
+	svc := service.NewWithJhipster(st, jhipster.NewGenerator())
 	hub := httpapi.NewHub(svc)
 	svc.AttachBroadcaster(hubAdapter{hub: hub})
 	hub.Run(ctx)

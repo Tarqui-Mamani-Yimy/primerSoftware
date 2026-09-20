@@ -37,6 +37,7 @@ func Routes() []Route {
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/checkpoints"},
 		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions"},
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/artifact"},
 	}
 }
 
@@ -135,6 +136,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/checkpoints", s.withAuth(s.handleCreateCheckpoint))
 	mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}/versions", s.withAuth(s.handleListVersions))
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore", s.withAuth(s.handleRestore))
+	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/artifact", s.withAuth(s.handleGenerateArtifact))
 	if s.tickets != nil {
 		mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/realtime-tickets", s.withAuth(s.handleIssueRealtimeTicket))
 	}
@@ -218,6 +220,8 @@ func mapError(w http.ResponseWriter, err error) bool {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(conflictEnvelope{Message: e.Error(), Current: e.Current})
 		return true
+	case service.GenerationError:
+		writeError(w, http.StatusBadGateway, e.Message)
 	default:
 		writeError(w, http.StatusInternalServerError, "Request failed")
 	}
