@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActiveView, UMLClassNode, Stereotype, JpaStrategy, UMLRelationship } from './types';
+import { ActiveView, UMLClassNode, Stereotype, UMLRelationship } from './types';
 import { createDiagramDocument } from './diagram/document';
 import { downloadDiagramPng, downloadDiagramSvg } from './diagram/visualExport';
 import { downloadDiagramXmi } from './diagram/xmiExport';
-import { ApiError, authApi, diagramApi, projectApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion, UMLDiagramDocument } from './api/diagramApi';
-import { generateAllCodeFiles } from './data/codeGenerator';
+import { ApiError, artifactApi, authApi, diagramApi, projectApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion, UMLDiagramDocument } from './api/diagramApi';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { CanvasView } from './components/UmlCanvas/CanvasView';
@@ -13,7 +12,6 @@ import { LoginScreen } from './components/UserAccess/LoginScreen';
 import { ProjectDashboard } from './components/UserAccess/ProjectDashboard';
 import { CheckpointDialog } from './components/UmlCanvas/CheckpointDialog';
 import { ConflictBanner } from './components/UmlCanvas/ConflictBanner';
-import JSZip from 'jszip';
 import { es } from './i18n/es';
 
 type AppScreen = 'login' | 'projects' | 'workspace';
@@ -29,7 +27,6 @@ export default function App() {
   const [relationships, setRelationships] = useState<UMLRelationship[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [selectedRelationshipId, setSelectedRelationshipId] = useState<string>('');
-  const [strategy, setStrategy] = useState<JpaStrategy>('JOINED');
   const [diagramId, setDiagramId] = useState<string | undefined>();
   const [diagramName, setDiagramName] = useState('');
   const [diagramVersion, setDiagramVersion] = useState(0);
@@ -524,7 +521,31 @@ export default function App() {
     }
   }, [conflictSnapshot, applyDocument, loadVersions, scheduleSave]);
 
-  const handleExport = async (type: 'svg' | 'png' | 'xmi' | 'plantuml' | 'sql' | 'zip') => {
+  // Build the current portable document and ask the server for a real JHipster
+  // backend zip, then trigger its download with the exact server filename.
+  const generateBackendArtifact = async () => {
+    const project = activeProjectRef.current;
+    const id = diagramIdRef.current;
+    if (!project || !id) return;
+    const document = createDiagramDocument(
+      diagramNameRef.current.trim() || 'Diagrama sin título',
+      classesRef.current,
+      relationshipsRef.current,
+      id,
+      diagramVersionRef.current,
+    );
+    const response = await artifactApi.generate(project.id, id, document);
+    const url = window.URL.createObjectURL(response.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = response.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (type: 'svg' | 'png' | 'xmi' | 'plantuml' | 'zip') => {
     if (type === 'svg') {
       downloadDiagramSvg(diagramName, classes, relationships);
       return;
@@ -535,31 +556,18 @@ export default function App() {
       return;
     }
 
-    const codeFiles = generateAllCodeFiles(classes, strategy);
-
     if (type === 'zip') {
-      const zip = new JSZip();
-      codeFiles.forEach(file => {
-        zip.file(file.path, file.content);
-      });
-      zip.file('README.md', `# Spring Boot E-Commerce Core\nGenerated with AI UML v2.4\n`);
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'spring-boot-ecommerce-core.zip';
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (type === 'sql') {
-      const sqlFile = codeFiles.find(f => f.id === 'sql-ddl') || codeFiles[1];
-      const blob = new Blob([sqlFile.content], { type: 'text/sql' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'V1__init_schema.sql';
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (type === 'plantuml') {
+      // Menu shortcut: generate with server defaults. The dedicated
+      // BackendGeneratorView surfaces detailed configuration and results.
+      try {
+        await generateBackendArtifact();
+      } catch (error) {
+        console.error('Backend artifact generation failed', error);
+      }
+      return;
+    }
+
+    if (type === 'plantuml') {
       let puml = '@startuml\n';
       classes.forEach(c => {
         puml += `class ${c.name} {\n`;
@@ -674,10 +682,15 @@ export default function App() {
 
         {activeView === 'backend-db-generator' && (
           <BackendGeneratorView
-            classes={classes}
-            strategy={strategy}
-            onStrategyChange={setStrategy}
-            onDownloadZip={() => handleExport('zip')}
+            projectId={activeProject?.id}
+            diagramId={diagramId}
+            document={createDiagramDocument(
+              diagramName.trim() || 'Diagrama sin título',
+              classes,
+              relationships,
+              diagramId,
+              diagramVersion,
+            )}
           />
         )}
       </div>

@@ -5,7 +5,7 @@ import { es } from '../i18n/es';
 interface HeaderProps {
   activeView: ActiveView;
   onSelectView: (view: ActiveView) => void;
-  onExport: (type: 'svg' | 'png' | 'xmi' | 'plantuml' | 'sql' | 'zip') => void | Promise<void>;
+  onExport: (type: 'svg' | 'png' | 'xmi' | 'plantuml' | 'zip') => void | Promise<void>;
   projectName?: string;
   onBackToProjects?: () => void;
 }
@@ -128,15 +128,6 @@ export const Header: React.FC<HeaderProps> = ({ activeView, onSelectView, onExpo
                 >
                   <span>{es.export.plantuml}</span>
                   <span className="text-[10px] text-[#86948a]">.puml</span>
-                </button>
-                <button
-                  onClick={() => { onExport('sql'); setShowExportMenu(false); }}
-                  className="w-full text-left px-2.5 py-1.5 text-[#dfe2ee] hover:bg-[#1c2028] hover:text-[#4edea3] transition-colors flex items-center justify-between"
-                  type="button"
-                  role="menuitem"
-                >
-                  <span>{es.export.sql}</span>
-                  <span className="text-[10px] text-[#86948a]">.sql</span>
                 </button>
                 <div className="h-px bg-[#3c4a42] my-1"></div>
                 <button
