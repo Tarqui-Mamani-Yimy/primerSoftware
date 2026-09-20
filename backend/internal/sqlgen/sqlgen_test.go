@@ -103,7 +103,6 @@ func TestRenderSQLStructure(t *testing.T) {
 		"ALTER TABLE profile ADD CONSTRAINT fk_profile__student_id FOREIGN KEY (student_id) REFERENCES student (id);",
 		"ALTER TABLE rel_course__tags ADD CONSTRAINT fk_rel_course__tags__course_id FOREIGN KEY (course_id) REFERENCES course (id);",
 		"ALTER TABLE rel_course__tags ADD CONSTRAINT fk_rel_course__tags__tags_id FOREIGN KEY (tags_id) REFERENCES tag (id);",
-		"-- ManyToMany Order to Order is a self-association; no join table is emitted",
 		"-- JHipster internal seeds (admin/admin, user/user).",
 		"INSERT INTO jhi_authority (name) VALUES ('ROLE_ADMIN'), ('ROLE_USER') ON CONFLICT (name) DO NOTHING;",
 		"(1, 'admin', '$2a$10$gSAhZrxMllrbgj/kkK9UceBPpChGWJA7SYIb1Mqo.n5aNLq1/oRrC', 'Administrator',",
@@ -122,6 +121,14 @@ func TestRenderSQLStructure(t *testing.T) {
 		"    note text",
 		// OneToMany FK placement: Enrollment{student} -> Student{enrollments}
 		"CREATE TABLE IF NOT EXISTS student (",
+		// Self ManyToMany join table for Order{orders} to Order{orders}
+		"CREATE TABLE IF NOT EXISTS rel_order__orders (",
+		"    order_id bigint NOT NULL,",
+		"    orders_id bigint NOT NULL,",
+		"    PRIMARY KEY (order_id, orders_id)",
+		"ALTER TABLE rel_order__orders ADD CONSTRAINT fk_rel_order__orders__order_id FOREIGN KEY (order_id) REFERENCES order (id);",
+		"ALTER TABLE rel_order__orders ADD CONSTRAINT fk_rel_order__orders__orders_id FOREIGN KEY (orders_id) REFERENCES order (id);",
+		// The old "self-association; no join table" comment must not remain.
 	}
 	for _, want := range wants {
 		if !strings.Contains(sql, want) {

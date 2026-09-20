@@ -216,13 +216,13 @@ func RenderSQL(m jdlgen.Model) string {
 		b.WriteString("\n);\n\n")
 	}
 
-	// ManyToMany join tables.
+	// ManyToMany join tables. Self-associations (Src == Dst) are NOT skipped:
+	// JHipster 9.4.0 emits a real join table for them (e.g. Order{orders} to
+	// Order{orders} → rel_order__orders). The same shape applies: owner column
+	// = snake(Src)+"_id", inverse column = snake(SrcField)+"_id", composite PK,
+	// and two fk_rel_<join>__<col> constraints both referencing the same table.
 	for _, r := range m.Relationships {
 		if r.Kind != "ManyToMany" {
-			continue
-		}
-		if r.Src == r.Dst {
-			b.WriteString(fmt.Sprintf("-- ManyToMany %s to %s is a self-association; no join table is emitted\n", r.Src, r.Dst))
 			continue
 		}
 		srcTable := snake(r.Src)
