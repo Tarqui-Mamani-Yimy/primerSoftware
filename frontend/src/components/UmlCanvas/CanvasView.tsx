@@ -51,7 +51,9 @@ const markerFor = (type: RelationshipType) => {
   if (type === 'aggregation') return 'url(#aggregation)';
   if (type === 'composition') return 'url(#composition)';
   if (type === 'generalization' || type === 'realization') return 'url(#triangle)';
-  return 'url(#arrow)';
+  if (type === 'dependency') return 'url(#arrow)';
+  // Ordinary association renders as a plain line without any marker — UML 2.5.
+  return undefined;
 };
 
 export const CanvasView: React.FC<CanvasViewProps> = (props) => {
@@ -251,7 +253,7 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
                   stroke={isSelected ? '#ffffff' : color} strokeWidth={isSelected ? 3 : 2}
                   strokeDasharray={relationshipDash[relationship.type]}
                   markerStart={relationship.type === 'aggregation' || relationship.type === 'composition' ? markerFor(relationship.type) : undefined}
-                  markerEnd={relationship.type === 'aggregation' || relationship.type === 'composition' ? undefined : markerFor(relationship.type)}
+                  markerEnd={relationship.type === 'association' || relationship.type === 'aggregation' || relationship.type === 'composition' ? undefined : markerFor(relationship.type)}
                 />
                 {relationship.label && (
                   <g>

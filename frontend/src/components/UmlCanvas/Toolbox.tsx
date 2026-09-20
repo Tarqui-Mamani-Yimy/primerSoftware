@@ -132,7 +132,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
 
           <div className="space-y-1 mt-1.5 font-mono text-xs">
             {[
-              { id: 'association', label: es.canvas.association, icon: 'trending_flat', sym: '——>', color: 'text-[#4cd7f6]' },
+              { id: 'association', label: es.canvas.association, icon: 'horizontal_rule', sym: '———', color: 'text-[#4cd7f6]' },
               { id: 'aggregation', label: es.canvas.aggregation, icon: 'diamond', sym: '♦——', color: 'text-[#bbcabf]' },
               { id: 'composition', label: es.canvas.composition, icon: 'diamond', fill: true, sym: '♦——', color: 'text-[#4edea3]' },
               { id: 'generalization', label: es.canvas.generalization, icon: 'arrow_upward', sym: '——△', color: 'text-[#d0bcff]' },

@@ -21,6 +21,7 @@ const relationshipColor = (type: RelationshipType) => (
 );
 
 const markerEnd = (type: RelationshipType) => {
+  if (type === 'association') return '';
   if (type === 'aggregation' || type === 'composition') return '';
   if (type === 'generalization' || type === 'realization') return ' marker-end="url(#triangle)"';
   return ' marker-end="url(#arrow)"';
