@@ -1,13 +1,13 @@
 {
   "diagramName": "Edge",
   "entities": [
-    "Class_",
+    "Class",
     "Order",
-    "Order_2"
+    "Order2"
   ],
   "relationships": [
-    "ManyToMany Order{order} to Order{order_2}",
-    "OneToMany Order{class_} to Class_{order}"
+    "ManyToMany Order{order} to Order{order2}",
+    "OneToMany Order{class2} to Class{order}"
   ],
   "dropped": [
     {
@@ -17,7 +17,7 @@
     },
     {
       "kind": "layout",
-      "location": "class Class_",
+      "location": "class Class",
       "detail": "x=0 y=0 (canvas coordinates do not exist in JDL)"
     },
     {
@@ -27,18 +27,18 @@
     },
     {
       "kind": "layout",
-      "location": "class Order_2",
+      "location": "class Order2",
       "detail": "x=0 y=0 (canvas coordinates do not exist in JDL)"
     },
     {
       "kind": "relationship",
       "location": "relationship g1",
-      "detail": "generalization from \"Order\" to \"Order_2\" (warn-and-skip; remodel inheritance in JHipster)"
+      "detail": "generalization from \"Order\" to \"Order2\" (warn-and-skip; remodel inheritance in JHipster)"
     },
     {
       "kind": "relationship",
       "location": "relationship d1",
-      "detail": "dependency from \"Order\" to \"Class_\" (warn-and-skip; dependencies are not expressed in JDL)"
+      "detail": "dependency from \"Order\" to \"Class\" (warn-and-skip; dependencies are not expressed in JDL)"
     },
     {
       "kind": "relationship",
@@ -47,13 +47,13 @@
     }
   ],
   "warnings": [
-    "class \"class\" renamed to entity \"Class_\" (Java identifier sanitization)",
-    "class \"order\" renamed to entity \"Order_2\" (name collision after sanitization)",
+    "class \"class\" renamed to entity \"Class\" (Java identifier sanitization)",
+    "class \"order\" renamed to entity \"Order2\" (name collision after sanitization)",
     "class \"Status\" with stereotype \"Enum\" skipped (no enum values in the UML model); remodel it as a JDL enum manually",
-    "class \"Class_\" attribute \"int\" renamed to field \"int_\" (Java identifier sanitization)",
-    "class \"Class_\" field \"int_\": unknown UML type \"Mystery\"; emitted as String",
-    "relationship g1: generalization from \"Order\" to \"Order_2\" skipped (inheritance is remodeled in JHipster, not generated)",
-    "relationship d1: dependency from \"Order\" to \"Class_\" skipped (dependencies are not expressed in JDL)",
+    "class \"Class\" attribute \"int\" renamed to field \"int2\" (Java identifier sanitization)",
+    "class \"Class\" field \"int2\": unknown UML type \"Mystery\"; emitted as String",
+    "relationship g1: generalization from \"Order\" to \"Order2\" skipped (inheritance is remodeled in JHipster, not generated)",
+    "relationship d1: dependency from \"Order\" to \"Class\" skipped (dependencies are not expressed in JDL)",
     "relationship x1: unknown class id \"nope\"; relationship skipped",
     "1 aggregation/composition relationship(s) flattened to plain JDL association(s); UML ownership and cascade semantics are not expressed in JDL"
   ]

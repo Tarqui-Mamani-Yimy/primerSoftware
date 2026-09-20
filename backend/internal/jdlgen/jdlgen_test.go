@@ -80,7 +80,7 @@ func TestSanitizeIdentifier(t *testing.T) {
 func TestEntityAndFieldNameCasing(t *testing.T) {
 	entityCases := []struct{ input, want string }{
 		{"order", "Order"},
-		{"class", "Class_"},
+		{"class", "Class"},
 		{"customer", "Customer"},
 	}
 	for _, tc := range entityCases {
@@ -92,7 +92,7 @@ func TestEntityAndFieldNameCasing(t *testing.T) {
 	}
 	fieldCases := []struct{ input, want string }{
 		{"Order", "order"},
-		{"Class_", "class_"},
+		{"Class_", "class2"},
 		{"Total", "total"},
 	}
 	for _, tc := range fieldCases {
@@ -104,16 +104,108 @@ func TestEntityAndFieldNameCasing(t *testing.T) {
 	}
 }
 
+// jdlReservedNamesDriveTheParser covers the root-cause fix: any field or
+// entity name that collides exactly with a JDL lexer keyword breaks the
+// pinned generator's parser (MismatchedTokenException), so such names must
+// gain a deterministic "2" suffix (underscores are rejected by the JDL
+// validator) and a warning.
+func jdlReservedDoc() domain.DiagramDocument {
+	return domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "reserved",
+		Classes: []domain.UmlClass{
+			{ID: "r1", Name: "Order", Attributes: []domain.Attribute{
+				{ID: "a1", Name: "required", Type: "String"},
+				{ID: "a2", Name: "unique", Type: "String"},
+				{ID: "a3", Name: "baseName", Type: "String"},
+				{ID: "a4", Name: "readOnly", Type: "Boolean"},
+				{ID: "a5", Name: "code", Type: "String"},
+			}},
+			{ID: "r2", Name: "OneToOne"},
+		},
+	}
+}
+
+func TestFieldNameJDLReservedWords(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "validation required", input: "required", want: "required2"},
+		{name: "validation unique", input: "unique", want: "unique2"},
+		{name: "validation pattern", input: "pattern", want: "pattern2"},
+		{name: "validation min", input: "min", want: "min2"},
+		{name: "config baseName", input: "BaseName", want: "baseName2"},
+		{name: "option readOnly", input: "ReadOnly", want: "readOnly2"},
+		{name: "java reserved only", input: "class", want: "class2"},
+		{name: "plain name kept", input: "code", want: "code"},
+		{name: "input case folds to reserved", input: "Required", want: "required2"},
+		{name: "superstring is safe", input: "requiredBy", want: "requiredBy"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := jdlgen.FieldName(tc.input); got != tc.want {
+				t.Errorf("FieldName(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEntityNameJDLReservedWords(t *testing.T) {
+	cases := []struct{ input, want string }{
+		{"OneToOne", "OneToOne2"},
+		{"ManyToMany", "ManyToMany2"},
+		{"Entity", "Entity"},
+		{"Application", "Application"},
+		{"Order", "Order"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := jdlgen.EntityName(tc.input); got != tc.want {
+				t.Errorf("EntityName(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExportRenamesJDLReservedNames(t *testing.T) {
+	got, rep := jdlgen.Export(jdlReservedDoc())
+	for _, want := range []string{
+		"  required2 String",
+		"  unique2 String",
+		"  baseName2 String",
+		"  readOnly2 Boolean",
+		"entity OneToOne2 {",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("JDL must contain %q, got:\n%s", want, got)
+		}
+	}
+	joined := strings.Join(rep.Warnings, "\n")
+	for _, want := range []string{
+		`attribute "required" renamed to field "required2" (JDL reserved word`,
+		`attribute "unique" renamed to field "unique2" (JDL reserved word`,
+		`attribute "baseName" renamed to field "baseName2" (JDL reserved word`,
+		`attribute "readOnly" renamed to field "readOnly2" (JDL reserved word`,
+		`class "OneToOne" renamed to entity "OneToOne2" (JDL reserved word`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("warnings must contain %q, got:\n%s", want, joined)
+		}
+	}
+}
+
 func TestEnsureUnique(t *testing.T) {
 	used := map[string]struct{}{}
 	if got := jdlgen.EnsureUnique("Order", used); got != "Order" {
 		t.Fatalf("first use = %q, want %q", got, "Order")
 	}
-	if got := jdlgen.EnsureUnique("Order", used); got != "Order_2" {
-		t.Fatalf("second use = %q, want %q", got, "Order_2")
+	if got := jdlgen.EnsureUnique("Order", used); got != "Order2" {
+		t.Fatalf("second use = %q, want %q", got, "Order2")
 	}
-	if got := jdlgen.EnsureUnique("Order", used); got != "Order_3" {
-		t.Fatalf("third use = %q, want %q", got, "Order_3")
+	if got := jdlgen.EnsureUnique("Order", used); got != "Order3" {
+		t.Fatalf("third use = %q, want %q", got, "Order3")
 	}
 	if got := jdlgen.EnsureUnique("Customer", used); got != "Customer" {
 		t.Fatalf("fresh base = %q, want %q", got, "Customer")
@@ -254,11 +346,11 @@ func TestExportEdgeGolden(t *testing.T) {
 
 	joined := strings.Join(rep.Warnings, "\n")
 	for _, want := range []string{
-		`renamed to entity "Class_"`,
-		`renamed to entity "Order_2"`,
+		`renamed to entity "Class"`,
+		`renamed to entity "Order2"`,
 		`stereotype "Enum" skipped`,
 		`unknown UML type "Mystery"`,
-		`generalization from "Order" to "Order_2" skipped`,
+		`generalization from "Order" to "Order2" skipped`,
 		`unknown class id "nope"`,
 		`flattened to plain JDL association(s)`,
 	} {

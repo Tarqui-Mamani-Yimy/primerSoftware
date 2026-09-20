@@ -190,21 +190,125 @@ func SanitizeIdentifier(raw string) string {
 	return out
 }
 
-// EntityName sanitizes raw into an UpperCamelCase JHipster entity name.
-func EntityName(raw string) string {
-	s := SanitizeIdentifier(raw)
-	r, size := utf8.DecodeRuneInString(s)
-	return string(unicode.ToUpper(r)) + s[size:]
+// jdlSafeIdentifier rewrites raw into a bare JDL-safe name stem: characters
+// outside [A-Za-z0-9] are dropped, leading digits are stripped up to the first
+// letter, and empty or digit-only input yields "Unnamed". JHipster 9.4.0's
+// JDL validator requires entity names to match /^[A-Z][A-Za-z0-9]*$/ and field
+// names /^[A-Za-z][A-Za-z0-9]*$/, so no underscore may remain in the final
+// name; FieldName/EntityName apply camel case and the reserved-word checks on
+// top of this stem. The mapping is deterministic.
+func jdlSafeIdentifier(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(raw) {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	out := b.String()
+	hasLetter := false
+	for _, r := range out {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+			hasLetter = true
+			break
+		}
+	}
+	if !hasLetter {
+		return "Unnamed"
+	}
+	cut := 0
+	for cut < len(out) && out[cut] >= '0' && out[cut] <= '9' {
+		cut++
+	}
+	return out[cut:]
 }
 
-// FieldName sanitizes raw into a lowerCamelCase JDL field name.
+// FieldName sanitizes raw into a lowerCamelCase JDL field name. Names that
+// collide exactly with a JDL lexer keyword (for example "required", "unique",
+// "baseName", "readOnly") or a Java reserved word gain a "2" suffix: the
+// pinned generator's chevrotain lexer tokenizes those words as grammar tokens
+// instead of NAME tokens, so `required String` fails with
+// MismatchedTokenException, the JDL validator rejects underscores in field
+// names, and a Java keyword like "class" would break the generated entity.
+// The mapping is deterministic; see jdlReservedWords for the authoritative set.
 func FieldName(raw string) string {
-	s := SanitizeIdentifier(raw)
+	s := jdlSafeIdentifier(raw)
 	r, size := utf8.DecodeRuneInString(s)
-	return string(unicode.ToLower(r)) + s[size:]
+	out := string(unicode.ToLower(r)) + s[size:]
+	if _, reserved := javaReserved[out]; reserved {
+		out += "2"
+	}
+	if isJDLReservedWord(out) {
+		out += "2"
+	}
+	return out
 }
 
-// EnsureUnique returns base when unused, otherwise base_2, base_3, … —
+// EntityName sanitizes raw into an UpperCamelCase JHipster entity name. The
+// same JDL lexer guard as FieldName applies: a class literally named
+// "OneToOne" would lex as the relationship-type token and break the parser,
+// and the validator rejects underscores in entity names. UpperCamelCase can
+// never equal a lowercase Java keyword, so only the JDL guard applies here.
+func EntityName(raw string) string {
+	s := jdlSafeIdentifier(raw)
+	r, size := utf8.DecodeRuneInString(s)
+	out := string(unicode.ToUpper(r)) + s[size:]
+	if isJDLReservedWord(out) {
+		out += "2"
+	}
+	return out
+}
+
+// jdlReservedWords is the authoritative set of words the pinned JDL lexer
+// tokenizes as something other than NAME. Extracted from generator-jhipster
+// 9.4.0: dist/lib/jdl/core/parsing/lexer/{lexer,option-tokens,
+// relationship-type-tokens,validation-tokens,minmax-tokens}.js and
+// dist/lib/jdl/core/built-in-options/tokens/{application-tokens,
+// deployment-tokens}.js. Comparison is exact (the lexer patterns are
+// case-sensitive): "required" collides, "Required" does not.
+var jdlReservedWords = map[string]struct{}{
+	// Core language keywords (lexer.js)
+	"config": {}, "entities": {}, "application": {}, "deployment": {},
+	"serviceDiscoveryType": {}, "true": {}, "false": {}, "entity": {},
+	"enum": {}, "relationship": {}, "builtInEntity": {}, "to": {},
+	// Option keywords (option-tokens.js)
+	"with": {}, "except": {}, "use": {}, "for": {}, "clientRootFolder": {},
+	"noFluentMethod": {}, "readOnly": {}, "embedded": {}, "dto": {},
+	"paginate": {}, "service": {}, "microservice": {}, "search": {},
+	"angularSuffix": {}, "filter": {},
+	// Validation keywords (validation-tokens.js, minmax-tokens.js)
+	"required": {}, "unique": {}, "pattern": {}, "minlength": {},
+	"maxlength": {}, "minbytes": {}, "maxbytes": {}, "min": {}, "max": {},
+	// Application configuration keys (application-tokens.js)
+	"baseName": {}, "blueprints": {}, "blueprint": {}, "creationTimestamp": {},
+	"gatewayServerPort": {}, "packageName": {}, "authenticationType": {},
+	"cacheProvider": {}, "enableHibernateCache": {}, "websocket": {},
+	"databaseType": {}, "devDatabaseType": {}, "prodDatabaseType": {},
+	"buildTool": {}, "searchEngine": {}, "enableTranslation": {},
+	"applicationType": {}, "testFrameworks": {}, "languages": {},
+	"serverPort": {}, "jhiPrefix": {}, "jwtSecretKey": {}, "jhipsterVersion": {},
+	"clientFramework": {}, "clientThemeVariant": {}, "clientTheme": {},
+	"withAdminUi": {}, "nativeLanguage": {}, "frontendBuilder": {},
+	"skipUserManagement": {}, "enableSwaggerCodegen": {}, "reactive": {},
+	"entitySuffix": {}, "dtoSuffix": {}, "skipClient": {}, "skipServer": {},
+	"rememberMeKey": {}, "enableGradleDevelocity": {}, "gradleDevelocityHost": {},
+	"microfrontends": {}, "microfrontend": {}, "nodePackageManager": {},
+	// Deployment configuration keys (deployment-tokens.js)
+	"appsFolders": {}, "clusteredDbApps": {}, "deploymentType": {},
+	"directoryPath": {}, "dockerPushCommand": {}, "dockerRepositoryName": {},
+	"gatewayType": {}, "ingressDomain": {}, "ingressType": {}, "istio": {},
+	"kubernetesNamespace": {}, "kubernetesServiceType": {},
+	"kubernetesStorageClassName": {}, "kubernetesUseDynamicStorage": {},
+	"monitoring": {}, "registryReplicas": {}, "storageType": {},
+	// Relationship type keywords (relationship-type-tokens.js)
+	"OneToOne": {}, "OneToMany": {}, "ManyToOne": {}, "ManyToMany": {},
+}
+
+func isJDLReservedWord(s string) bool {
+	_, reserved := jdlReservedWords[s]
+	return reserved
+}
+
+// EnsureUnique returns base when unused, otherwise base2, base3, … —
 // deterministically. The returned name is recorded in used.
 func EnsureUnique(base string, used map[string]struct{}) string {
 	if _, taken := used[base]; !taken {
@@ -212,7 +316,7 @@ func EnsureUnique(base string, used map[string]struct{}) string {
 		return base
 	}
 	for i := 2; ; i++ {
-		candidate := base + "_" + strconv.Itoa(i)
+		candidate := base + strconv.Itoa(i)
 		if _, taken := used[candidate]; !taken {
 			used[candidate] = struct{}{}
 			return candidate
@@ -346,8 +450,11 @@ func Export(doc domain.DiagramDocument) (string, Report) {
 		base := EntityName(class.Name)
 		final := EnsureUnique(base, usedEntities)
 		reason := "Java identifier sanitization"
-		if final != base {
+		switch {
+		case final != base:
 			reason = "name collision after sanitization"
+		case isJDLReservedWord(strings.TrimSuffix(base, "2")):
+			reason = "JDL reserved word (would break the JHipster JDL parser)"
 		}
 		if final != class.Name {
 			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
@@ -394,8 +501,11 @@ func Export(doc domain.DiagramDocument) (string, Report) {
 			final := EnsureUnique(base, usedFields)
 			if final != attr.Name {
 				reason := "Java identifier sanitization"
-				if final != base {
+				switch {
+				case final != base:
 					reason = "name collision after sanitization"
+				case isJDLReservedWord(strings.TrimSuffix(base, "2")):
+					reason = "JDL reserved word (would break the JHipster JDL parser)"
 				}
 				rep.Warnings = append(rep.Warnings, fmt.Sprintf(
 					"class %q attribute %q renamed to field %q (%s)", entity.name, attr.Name, final, reason))
