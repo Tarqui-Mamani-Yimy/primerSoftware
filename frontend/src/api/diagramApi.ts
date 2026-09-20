@@ -28,6 +28,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function parseContentDisposition(value: string | null): string | undefined {
+  if (!value) return undefined;
+  const match = /filename="?([^";]+)"?/i.exec(value);
+  return match?.[1] ?? undefined;
+}
+
+// Binary sibling of `request` for endpoints that answer with a file instead of
+// JSON (the JHipster artifact endpoint streams a zip). Shares the module-level
+// Bearer token and surfaces failures as ApiError with the backend message.
+async function requestFile(path: string, init?: RequestInit): Promise<BackendArtifactResult> {
+  const initHeaders = init?.headers as Record<string, string> | undefined;
+  const headers: Record<string, string> = { ...(initHeaders ?? {}) };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { message?: string } | null;
+    throw new ApiError(response.status, body ?? undefined);
+  }
+  const filename = parseContentDisposition(response.headers.get('content-disposition')) ?? 'jhipster-backend.zip';
+  return { blob: await response.blob(), filename };
+}
+
 export const authApi = {
   login: (email: string, password: string) => request<AuthenticatedUser>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   setToken: (token?: string) => { accessToken = token; },
@@ -59,4 +81,31 @@ export const diagramApi = {
   },
   versions: (p: string, id: string) => request<DiagramVersion[]>(`/projects/${p}/diagrams/${id}/versions`),
   restore: (p: string, id: string, v: number) => request<UMLDiagramDocument>(`/projects/${p}/diagrams/${id}/versions/${v}/restore`, { method: 'POST' }),
+};
+
+/** Build options for the JHipster artifact endpoint. Any omitted option falls
+ * back to the backend defaults (UmlArchitect / com.umlarchitect / maven / jwt). */
+export interface ArtifactConfig {
+  baseName?: string;
+  packageName?: string;
+  buildTool?: 'maven' | 'gradle';
+  authenticationType?: 'jwt';
+}
+
+/** Result of a successful artifact generation: the zip blob plus the exact
+ * filename the backend attached (Content-Disposition), so clients can save it
+ * without hardcoding a name. */
+export interface BackendArtifactResult {
+  blob: Blob;
+  filename: string;
+}
+
+/** The artifact endpoint generates the real Spring Boot/JPA backend on the
+ * server (pinned generator-jhipster) and streams it as a zip. */
+export const artifactApi = {
+  generate: (projectId: string, diagramId: string, document: UMLDiagramDocument, config?: ArtifactConfig) =>
+    requestFile(`/projects/${projectId}/diagrams/${diagramId}/artifact`, {
+      method: 'POST',
+      body: JSON.stringify({ document, config: config ?? undefined }),
+    }),
 };

@@ -93,16 +93,3 @@ export interface DiagramCheckpointAuthor {
   message?: string | null;
   createdAt: string;
 }
-
-export type JpaStrategy = 'JOINED' | 'SINGLE' | 'TABLE_PER';
-
-export interface CodeFile {
-  id: string;
-  path: string;
-  filename: string;
-  badge?: string;
-  badgeType?: 'primary' | 'secondary' | 'tertiary' | 'outline';
-  language: 'java' | 'sql' | 'yaml' | 'xml';
-  content: string;
-  linesCount?: number;
-}
