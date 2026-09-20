@@ -6,8 +6,8 @@
     "Order2"
   ],
   "relationships": [
-    "ManyToMany Order{order} to Order{order2}",
-    "OneToMany Order{class2} to Class{order}"
+    "Order{orders} to Order{orders2}",
+    "Order{class2s} to Class{order}"
   ],
   "dropped": [
     {

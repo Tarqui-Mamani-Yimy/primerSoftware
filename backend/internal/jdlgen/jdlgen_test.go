@@ -234,13 +234,13 @@ func TestExportCardinalities(t *testing.T) {
 		dst  *string
 		want string
 	}{
-		{name: "missing means one to one", src: nil, dst: nil, want: "OneToOne Alpha{beta} to Beta{alpha}"},
-		{name: "one to many", src: strp("1"), dst: strp("*"), want: "OneToMany Alpha{beta} to Beta{alpha}"},
-		{name: "many to one", src: strp("*"), dst: strp("1"), want: "ManyToOne Alpha{beta} to Beta{alpha}"},
-		{name: "many to many", src: strp("*"), dst: strp("*"), want: "ManyToMany Alpha{beta} to Beta{alpha}"},
-		{name: "range many", src: strp("0..1"), dst: strp("1..*"), want: "OneToMany Alpha{beta} to Beta{alpha}"},
-		{name: "numeric many", src: strp("2"), dst: strp("1"), want: "ManyToOne Alpha{beta} to Beta{alpha}"},
-		{name: "one to one ranges", src: strp("1"), dst: strp("1..1"), want: "OneToOne Alpha{beta} to Beta{alpha}"},
+		{name: "missing means one to one", src: nil, dst: nil, want: "Alpha{beta} to Beta{alpha}"},
+		{name: "one to many", src: strp("1"), dst: strp("*"), want: "Alpha{betas} to Beta{alpha}"},
+		{name: "many to one", src: strp("*"), dst: strp("1"), want: "Alpha{beta} to Beta{alphas}"},
+		{name: "many to many", src: strp("*"), dst: strp("*"), want: "Alpha{betas} to Beta{alphas}"},
+		{name: "range many", src: strp("0..1"), dst: strp("1..*"), want: "Alpha{betas} to Beta{alpha}"},
+		{name: "numeric many", src: strp("2"), dst: strp("1"), want: "Alpha{beta} to Beta{alphas}"},
+		{name: "one to one ranges", src: strp("1"), dst: strp("1..1"), want: "Alpha{beta} to Beta{alpha}"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

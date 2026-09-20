@@ -409,266 +409,12 @@ func cardinality(srcMany, dstMany bool) string {
 	}
 }
 
-type entityDef struct {
-	name   string
-	fields []fieldDef
-}
-
-type fieldDef struct {
-	name string
-	typ  string
-}
-
 // Export converts doc into deterministic JDL text plus a report of every
 // dropped construct. Output order follows the document: classes and
 // relationships appear in input order, so repeated runs are byte-identical.
 func Export(doc domain.DiagramDocument) (string, Report) {
-	rep := Report{
-		DiagramName:   doc.Name,
-		Entities:      []string{},
-		Relationships: []string{},
-		Dropped:       []Dropped{},
-		Warnings:      []string{},
-	}
-
-	// Phase 1: assign entity names in class order; skip «Enum» classes.
-	idToEntity := map[string]string{}
-	skipped := map[string]bool{}
-	usedEntities := map[string]struct{}{}
-	for _, class := range doc.Classes {
-		if IsEnumStereotype(class.Stereotype) {
-			skipped[class.ID] = true
-			rep.Dropped = append(rep.Dropped, Dropped{
-				Kind:     "enum",
-				Location: "class " + class.Name,
-				Detail:   `stereotype "Enum" without value list (the UML Attribute carries id/name/type/visibility only); JDL enum not emitted`,
-			})
-			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-				`class %q with stereotype "Enum" skipped (no enum values in the UML model); remodel it as a JDL enum manually`, class.Name))
-			continue
-		}
-		base := EntityName(class.Name)
-		final := EnsureUnique(base, usedEntities)
-		reason := "Java identifier sanitization"
-		switch {
-		case final != base:
-			reason = "name collision after sanitization"
-		case isJDLReservedWord(strings.TrimSuffix(base, "2")):
-			reason = "JDL reserved word (would break the JHipster JDL parser)"
-		}
-		if final != class.Name {
-			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-				"class %q renamed to entity %q (%s)", class.Name, final, reason))
-		}
-		idToEntity[class.ID] = final
-		rep.Entities = append(rep.Entities, final)
-	}
-
-	// Phase 2: emit entity blocks with attribute fields.
-	entities := make([]entityDef, 0, len(rep.Entities))
-	for _, class := range doc.Classes {
-		if skipped[class.ID] {
-			continue
-		}
-		entity := entityDef{name: idToEntity[class.ID]}
-		usedFields := map[string]struct{}{}
-		rep.Dropped = append(rep.Dropped, Dropped{
-			Kind:     "layout",
-			Location: "class " + entity.name,
-			Detail:   layoutDetail(class),
-		})
-		if class.IsAssociationClass != nil && *class.IsAssociationClass {
-			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-				"class %q is an association class (attached relationship %s); emitted as a plain JPA entity with explicit relationships (JHipster has no association-class construct)",
-				entity.name, attachedRelationshipRef(class)))
-		}
-		if class.PackageName != nil && strings.TrimSpace(*class.PackageName) != "" {
-			rep.Dropped = append(rep.Dropped, Dropped{
-				Kind:     "package",
-				Location: "class " + entity.name,
-				Detail:   fmt.Sprintf("package %q (JHipster derives packages from baseName)", *class.PackageName),
-			})
-		}
-		if class.TableBinding != nil && strings.TrimSpace(*class.TableBinding) != "" {
-			rep.Dropped = append(rep.Dropped, Dropped{
-				Kind:     "tableBinding",
-				Location: "class " + entity.name,
-				Detail:   fmt.Sprintf("table %q (JHipster generates table names)", *class.TableBinding),
-			})
-		}
-		for _, attr := range class.Attributes {
-			base := FieldName(attr.Name)
-			final := EnsureUnique(base, usedFields)
-			if final != attr.Name {
-				reason := "Java identifier sanitization"
-				switch {
-				case final != base:
-					reason = "name collision after sanitization"
-				case isJDLReservedWord(strings.TrimSuffix(base, "2")):
-					reason = "JDL reserved word (would break the JHipster JDL parser)"
-				}
-				rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-					"class %q attribute %q renamed to field %q (%s)", entity.name, attr.Name, final, reason))
-			}
-			jdlType, known := jdlTypeFor(attr.Type)
-			if !known {
-				rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-					"class %q field %q: unknown UML type %q; emitted as String", entity.name, final, attr.Type))
-			}
-			entity.fields = append(entity.fields, fieldDef{name: final, typ: jdlType})
-			if attr.Visibility != nil && strings.TrimSpace(*attr.Visibility) != "" {
-				rep.Dropped = append(rep.Dropped, Dropped{
-					Kind:     "visibility",
-					Location: "class " + entity.name + " attribute " + attr.Name,
-					Detail:   fmt.Sprintf("visibility %q (not expressed in JDL)", *attr.Visibility),
-				})
-			}
-		}
-		for _, method := range class.Methods {
-			rep.Dropped = append(rep.Dropped, Dropped{
-				Kind:     "method",
-				Location: "class " + entity.name,
-				Detail:   fmt.Sprintf("%s(): %s (behavior is not expressed in JDL)", method.Name, method.ReturnType),
-			})
-			if method.Visibility != nil && strings.TrimSpace(*method.Visibility) != "" {
-				rep.Dropped = append(rep.Dropped, Dropped{
-					Kind:     "visibility",
-					Location: "class " + entity.name + " method " + method.Name,
-					Detail:   fmt.Sprintf("visibility %q (not expressed in JDL)", *method.Visibility),
-				})
-			}
-		}
-		entities = append(entities, entity)
-	}
-
-	// Phase 3: emit relationships in document order.
-	entityFields := map[string]map[string]struct{}{}
-	for _, e := range entities {
-		used := map[string]struct{}{}
-		for _, f := range e.fields {
-			used[f.name] = struct{}{}
-		}
-		entityFields[e.name] = used
-	}
-	flattened := 0
-	for _, rel := range doc.Relationships {
-		src, srcOK := idToEntity[rel.SourceID]
-		dst, dstOK := idToEntity[rel.TargetID]
-		if !srcOK || !dstOK {
-			rep.Dropped = append(rep.Dropped, Dropped{
-				Kind:     "relationship",
-				Location: "relationship " + rel.ID,
-				Detail:   fmt.Sprintf("%s with dangling endpoint (unknown class id %q)", rel.Type, danglingID(rel, srcOK)),
-			})
-			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-				"relationship %s: unknown class id %q; relationship skipped", rel.ID, danglingID(rel, srcOK)))
-			continue
-		}
-		switch rel.Type {
-		case "association", "aggregation", "composition":
-			card := cardinality(isManySide(rel.SourceMultiplicity), isManySide(rel.TargetMultiplicity))
-			onSrc := EnsureUnique(FieldName(dst), entityFields[src])
-			onDst := EnsureUnique(FieldName(src), entityFields[dst])
-			rep.Relationships = append(rep.Relationships,
-				fmt.Sprintf("%s %s{%s} to %s{%s}", card, src, onSrc, dst, onDst))
-			if rel.Label != nil && strings.TrimSpace(*rel.Label) != "" {
-				rep.Dropped = append(rep.Dropped, Dropped{
-					Kind:     "label",
-					Location: "relationship " + rel.ID,
-					Detail:   fmt.Sprintf("label %q (not expressed in JDL)", *rel.Label),
-				})
-			}
-			if rel.Type == "aggregation" || rel.Type == "composition" {
-				flattened++
-			}
-		case "generalization", "realization", "dependency":
-			rep.Dropped = append(rep.Dropped, Dropped{
-				Kind:     "relationship",
-				Location: "relationship " + rel.ID,
-				Detail:   skipDetail(rel.Type, src, dst),
-			})
-			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-				"relationship %s: %s from %q to %q skipped (%s)", rel.ID, rel.Type, src, dst, skipAdvice(rel.Type)))
-		default:
-			rep.Dropped = append(rep.Dropped, Dropped{
-				Kind:     "relationship",
-				Location: "relationship " + rel.ID,
-				Detail:   fmt.Sprintf("unknown relationship type %q; relationship skipped", rel.Type),
-			})
-			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-				"relationship %s: unknown type %q; relationship skipped", rel.ID, rel.Type))
-		}
-	}
-	if flattened > 0 {
-		rep.Warnings = append(rep.Warnings, fmt.Sprintf(
-			"%d aggregation/composition relationship(s) flattened to plain JDL association(s); UML ownership and cascade semantics are not expressed in JDL", flattened))
-	}
-
-	return renderJDL(doc.Name, entities, rep.Relationships), rep
-}
-
-func danglingID(rel domain.Relationship, srcOK bool) string {
-	if !srcOK {
-		return rel.SourceID
-	}
-	return rel.TargetID
-}
-
-func skipDetail(relType, src, dst string) string {
-	switch relType {
-	case "generalization", "realization":
-		return fmt.Sprintf("%s from %q to %q (warn-and-skip; remodel inheritance in JHipster)", relType, src, dst)
-	default:
-		return fmt.Sprintf("%s from %q to %q (warn-and-skip; dependencies are not expressed in JDL)", relType, src, dst)
-	}
-}
-
-func skipAdvice(relType string) string {
-	switch relType {
-	case "generalization", "realization":
-		return "inheritance is remodeled in JHipster, not generated"
-	default:
-		return "dependencies are not expressed in JDL"
-	}
-}
-
-func layoutDetail(class domain.UmlClass) string {
-	if class.Width != nil {
-		return fmt.Sprintf("x=%d y=%d width=%d (canvas coordinates do not exist in JDL)",
-			class.X, class.Y, *class.Width)
-	}
-	return fmt.Sprintf("x=%d y=%d (canvas coordinates do not exist in JDL)", class.X, class.Y)
-}
-
-// renderJDL assembles the final model.jdl. Sections follow input order and the
-// file always ends with a single newline.
-func renderJDL(diagramName string, entities []entityDef, relationships []string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "// Generated from UML diagram %q by ai-uml-architect (GEN-02).\n", diagramName)
-	b.WriteString("// Scaffold with: jhipster jdl model.jdl (requires JHipster installed).\n")
-	for _, e := range entities {
-		b.WriteString("\nentity " + e.name + " {\n")
-		for _, f := range e.fields {
-			b.WriteString("  " + f.name + " " + f.typ + "\n")
-		}
-		b.WriteString("}\n")
-	}
-	for _, r := range relationships {
-		parts := strings.SplitN(r, " ", 2)
-		b.WriteString("\nrelationship " + parts[0] + " {\n")
-		b.WriteString("  " + parts[1] + "\n")
-		b.WriteString("}\n")
-	}
-	return b.String()
-}
-
-// attachedRelationshipRef renders the attachment target for the
-// association-class warning, or "(none)" when no relationship is attached.
-func attachedRelationshipRef(class domain.UmlClass) string {
-	if class.AttachedRelationshipID != nil && strings.TrimSpace(*class.AttachedRelationshipID) != "" {
-		return *class.AttachedRelationshipID
-	}
-	return "(none)"
+	m, rep := BuildModel(doc)
+	return renderJDL(m), rep
 }
 
 // renderApplicationBlock emits the JDL application block that scaffolds the
@@ -697,21 +443,36 @@ func renderApplicationBlock(o Options, entities []string) string {
 	b.WriteString("  }\n")
 	if len(entities) > 0 {
 		fmt.Fprintf(&b, "  entities %s\n", strings.Join(entities, ", "))
+		// Without these two options JHipster generates bare spring-data
+		// repositories; with them every entity gets a real Service/ServiceImpl,
+		// a MapStruct DTO, and a REST resource with CRUD endpoints, which is
+		// what the generated artifact promises (GEN-02 contract).
+		b.WriteString("  service * with serviceImpl\n")
+		b.WriteString("  dto * with mapstruct\n")
 	}
 	b.WriteString("}\n")
 	return b.String()
 }
 
+// ExportArtifactModel converts doc into the standalone JHipster backend
+// scaffold AND the structured Model the database packager consumes, so the SQL
+// init script stays consistent with the JPA schema JHipster will generate.
+// Invalid options return a clear error and no JDL.
+func ExportArtifactModel(doc domain.DiagramDocument, o Options) (string, Model, Report, error) {
+	if errs := ValidateOptions(o); len(errs) > 0 {
+		return "", Model{}, Report{}, fmt.Errorf("invalid JHipster application options: %s", strings.Join(errs, "; "))
+	}
+	m, rep := BuildModel(doc)
+	return renderApplicationBlock(o, rep.Entities) + "\n" + renderJDL(m), m, rep, nil
+}
+
 // ExportArtifact converts doc into a standalone JHipster backend scaffold:
-// the application block (options-pinned, backend-only, with the entity list)
-// followed by the same entities, relationships, and enums Export produces.
-// The Report is returned so the caller can surface warnings and skipped
-// constructs in the artifact manifest.
+// the application block (options-pinned, backend-only, with the entity list
+// and the service/DTO options) followed by the same entities and
+// relationships Export produces. The Report is returned so the caller can
+// surface warnings and skipped constructs in the artifact manifest.
 // Invalid options return a clear error and no JDL.
 func ExportArtifact(doc domain.DiagramDocument, o Options) (string, Report, error) {
-	if errs := ValidateOptions(o); len(errs) > 0 {
-		return "", Report{}, fmt.Errorf("invalid JHipster application options: %s", strings.Join(errs, "; "))
-	}
-	jdl, rep := Export(doc)
-	return renderApplicationBlock(o, rep.Entities) + "\n" + jdl, rep, nil
+	jdl, _, rep, err := ExportArtifactModel(doc, o)
+	return jdl, rep, err
 }

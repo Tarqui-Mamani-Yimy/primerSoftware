@@ -74,6 +74,8 @@ func TestExportArtifactIncludesApplicationBlock(t *testing.T) {
 		"prodDatabaseType postgresql",
 		"skipClient true",
 		"entities Alpha",
+		"service * with serviceImpl",
+		"dto * with mapstruct",
 		"entity Alpha {",
 		"  total BigDecimal",
 	} {
@@ -120,5 +122,79 @@ func TestExportWarnsAssociationClass(t *testing.T) {
 	}
 	if len(rep.Entities) != 3 {
 		t.Fatalf("association class must still be emitted as an entity, entities: %v", rep.Entities)
+	}
+}
+
+func TestExportSynthesizesAssociationLinks(t *testing.T) {
+	// Membership is an association class attached to rel-1 (Course→Student);
+	// BuildModel must emit real ManyToOne links from Membership to BOTH ends.
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "UML",
+		Classes: []domain.UmlClass{
+			{ID: "a", Name: "Course"},
+			{ID: "b", Name: "Student"},
+			{ID: "c", Name: "Membership", IsAssociationClass: boolPtr(true), AttachedRelationshipID: strp("rel-1")},
+		},
+		Relationships: []domain.Relationship{
+			{
+				ID: "rel-1", SourceID: "a", TargetID: "b", Type: "association",
+				SourceMultiplicity: strp("*"), TargetMultiplicity: strp("*"),
+			},
+		},
+	}
+	jdl, rep := jdlgen.Export(doc)
+
+	wantLinks := []string{
+		"Membership{course} to Course{memberships}",
+		"Membership{student} to Student{memberships}",
+	}
+	for _, want := range wantLinks {
+		if !strings.Contains(jdl, want) {
+			t.Errorf("JDL missing synthesized link %q:\n%s", want, jdl)
+		}
+	}
+	if len(rep.Relationships) != 3 {
+		t.Fatalf("expected the attachment plus 2 synthesized links, relationships: %v", rep.Relationships)
+	}
+	warned := 0
+	for _, w := range rep.Warnings {
+		if strings.Contains(w, "linked to association end") {
+			warned++
+		}
+	}
+	if warned != 2 {
+		t.Fatalf("expected 2 association-end warnings, got %d: %v", warned, rep.Warnings)
+	}
+}
+
+func TestExportSynthesizedLinkAvoidsFieldCollision(t *testing.T) {
+	// The association class already declares an attribute named after an
+	// endpoint (Course→field "student"): the synthesized ManyToOne must not
+	// overwrite it, so it becomes "student2".
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "UML",
+		Classes: []domain.UmlClass{
+			{ID: "a", Name: "Teacher"},
+			{ID: "b", Name: "Student"},
+			{ID: "c", Name: "Course", IsAssociationClass: boolPtr(true), AttachedRelationshipID: strp("rel-1"),
+				Attributes: []domain.Attribute{{ID: "a1", Name: "student", Type: "string"}}},
+		},
+		Relationships: []domain.Relationship{
+			{
+				ID: "rel-1", SourceID: "a", TargetID: "b", Type: "association",
+				SourceMultiplicity: strp("1"), TargetMultiplicity: strp("*"),
+			},
+		},
+	}
+	jdl, _ := jdlgen.Export(doc)
+	for _, want := range []string{
+		"Course{teacher} to Teacher{courses}",
+		"Course{student2} to Student{courses}",
+	} {
+		if !strings.Contains(jdl, want) {
+			t.Errorf("JDL missing %q:\n%s", want, jdl)
+		}
 	}
 }

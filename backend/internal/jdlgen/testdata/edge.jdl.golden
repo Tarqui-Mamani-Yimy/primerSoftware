@@ -14,9 +14,9 @@ entity Order2 {
 }
 
 relationship ManyToMany {
-  Order{order} to Order{order2}
+  Order{orders} to Order{orders2}
 }
 
 relationship OneToMany {
-  Order{class2} to Class{order}
+  Order{class2s} to Class{order}
 }

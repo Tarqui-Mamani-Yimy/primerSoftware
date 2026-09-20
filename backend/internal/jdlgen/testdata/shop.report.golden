@@ -5,7 +5,7 @@
     "Customer"
   ],
   "relationships": [
-    "OneToMany Order{customer} to Customer{order}"
+    "Order{customers} to Customer{order}"
   ],
   "dropped": [
     {
