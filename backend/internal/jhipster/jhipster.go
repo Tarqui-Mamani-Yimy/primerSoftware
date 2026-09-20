@@ -134,7 +134,7 @@ func (g *Generator) Generate(ctx context.Context, doc domain.DiagramDocument, o 
 		PackageName:   o.PackageName,
 		DatabaseName:  slug,
 		SQLFileName:   "database/" + slug + ".sql",
-		RunCommands:   runCommands(o.BuildTool),
+		RunCommands:   runCommands(o.BaseName, o.BuildTool),
 		Entities:      rep.Entities,
 		Relationships: rep.Relationships,
 		Warnings:      rep.Warnings,
@@ -176,13 +176,15 @@ func provisionDatabase(workDir string, model jdlgen.Model, slug, baseName string
 }
 
 // runCommands returns the exact commands a user runs after unzipping the
-// artifact, derived from the build tool JHipster scaffolds.
-func runCommands(buildTool string) []string {
-	if buildTool == "gradle" {
-		return []string{"docker compose up -d", "./gradlew", "./gradlew -Pprod"}
+	// artifact. The ZIP root contains a single <baseName>/ directory, so the
+	// first command is always `cd <baseName>` to reach the generated project
+	// where compose.yml, database/, and the build wrappers live.
+	func runCommands(baseName, buildTool string) []string {
+		if buildTool == "gradle" {
+			return []string{"cd " + baseName, "docker compose up -d", "./gradlew", "./gradlew -Pprod"}
+		}
+		return []string{"cd " + baseName, "docker compose up -d", "./mvnw", "./mvnw -Pprod"}
 	}
-	return []string{"docker compose up -d", "./mvnw", "./mvnw -Pprod"}
-}
 
 func invocation(version string) string {
 	// --ignore-scripts: pnpm 12 blocks unapproved build scripts by default and

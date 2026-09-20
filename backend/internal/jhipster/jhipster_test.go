@@ -233,7 +233,7 @@ func TestGenerateProducesZipWithManifest(t *testing.T) {
 	if m.DatabaseName != "uml-architect" || m.SQLFileName != "database/uml-architect.sql" {
 		t.Errorf("database provisioning = %s/%s", m.DatabaseName, m.SQLFileName)
 	}
-	if !reflect.DeepEqual(m.RunCommands, []string{"docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
+	if !reflect.DeepEqual(m.RunCommands, []string{"cd UmlArchitect", "docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
 		t.Errorf("runCommands = %v", m.RunCommands)
 	}
 	if !reflect.DeepEqual(m.Entities, []string{"Alpha"}) {
@@ -263,14 +263,14 @@ func TestGenerateProducesZipWithManifest(t *testing.T) {
 }
 
 func TestRunCommandsPerBuildTool(t *testing.T) {
-	if got := runCommands("gradle"); !reflect.DeepEqual(got, []string{"docker compose up -d", "./gradlew", "./gradlew -Pprod"}) {
-		t.Errorf("runCommands(gradle) = %v", got)
+	if got := runCommands("MyApp", "gradle"); !reflect.DeepEqual(got, []string{"cd MyApp", "docker compose up -d", "./gradlew", "./gradlew -Pprod"}) {
+		t.Errorf("runCommands(MyApp, gradle) = %v", got)
 	}
-	if got := runCommands("maven"); !reflect.DeepEqual(got, []string{"docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
-		t.Errorf("runCommands(maven) = %v", got)
+	if got := runCommands("MyApp", "maven"); !reflect.DeepEqual(got, []string{"cd MyApp", "docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
+		t.Errorf("runCommands(MyApp, maven) = %v", got)
 	}
-	if got := runCommands("anything-else"); !reflect.DeepEqual(got, []string{"docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
-		t.Errorf("runCommands(unknown) = %v", got)
+	if got := runCommands("MyApp", "anything-else"); !reflect.DeepEqual(got, []string{"cd MyApp", "docker compose up -d", "./mvnw", "./mvnw -Pprod"}) {
+		t.Errorf("runCommands(MyApp, unknown) = %v", got)
 	}
 }
 
