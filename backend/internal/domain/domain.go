@@ -60,20 +60,25 @@ type ProjectCreatedResponse struct {
 // DiagramSummary mirrors DiagramService.DiagramSummary.
 // The exact timestamp wire format is pinned in GOBE-02 against the live
 // backend. Version is the highest current checkpoint number (0 when none),
-// alongside the diagram's last autosave timestamp.
+// alongside the diagram's last autosave timestamp. ReviewNumber is the
+// monotonic per-diagram work counter echoed back so clients know which
+// baseline to send on the next write.
 type DiagramSummary struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	UpdatedAt string `json:"updatedAt"`
-	Version   int    `json:"version"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	UpdatedAt    string `json:"updatedAt"`
+	Version      int    `json:"version"`
+	ReviewNumber int64  `json:"reviewNumber"`
 }
 
 // DiagramVersion mirrors DiagramService.DiagramVersionResponse plus the
-// actor and the optional checkpoint message so the version-history UI can
-// attribute each entry to the user that pressed "Create checkpoint".
+// actor, the optional checkpoint message, and the per-diagram work counter
+// at the moment of the explicit save so version-history consumers can
+// correlate the entry with concurrent autosaves.
 type DiagramVersion struct {
 	ID            string          `json:"id"`
 	VersionNumber int             `json:"versionNumber"`
+	ReviewNumber  int64           `json:"reviewNumber"`
 	CreatedAt     string          `json:"createdAt"`
 	CreatedBy     string          `json:"createdBy"`
 	Message       *string         `json:"message"`
@@ -90,10 +95,17 @@ type DiagramVersion struct {
 // only the explicit /checkpoints POST advances it. Clients send Version back
 // in the request body (or via the If-Match header) so the server can detect a
 // concurrent checkpoint and reject stale writes with 409.
+//
+// ReviewNumber is a separate, monotonic per-diagram work counter that bumps
+// on every successful save or checkpoint write. Clients send the previous
+// value on the next PUT or POST /checkpoints (the JSON body's reviewNumber
+// or the X-Diagram-Review header). A mismatch returns 409, forbidding
+// silent overwrites even when an explicit checkpoint never happened.
 type DiagramDocument struct {
 	SchemaVersion int            `json:"schemaVersion"`
 	ID            *string        `json:"id"`
 	Version       int            `json:"version"`
+	ReviewNumber  int64          `json:"reviewNumber"`
 	Name          string         `json:"name"`
 	Classes       []UmlClass     `json:"classes"`
 	Relationships []Relationship `json:"relationships"`
@@ -103,8 +115,8 @@ type DiagramDocument struct {
 // is required to detect a concurrent checkpoint; the message is optional and
 // is stored on the version row to preserve authorship of the explicit save.
 type CheckpointRequest struct {
-	Version *int    `json:"version"`
-	Message *string `json:"message"`
+	Version       *int    `json:"version"`
+	Message       *string `json:"message"`
 }
 
 // UmlClass mirrors DiagramDocument.UmlClass. Nullable Java fields use pointers
@@ -173,4 +185,86 @@ func IsValidRelationshipType(t string) bool {
 		}
 	}
 	return false
+}
+
+// ----- Realtime collaboration envelopes -------------------------------------
+//
+// The realtime hub speaks JSON over WebSocket using a typed `type` field so
+// the same envelope schema can be extended without breaking existing
+// clients. Every envelope sent by the server carries an ISO-8601 UTC
+// `serverTime` so connected members can correct for clock drift and the
+// presence UI can fade old peers. The contract documented in the
+// "realtime-diagram-collaboration" tracker is the source of truth.
+
+// EnvelopeType is the closed set of realtime message kinds.
+type EnvelopeType string
+
+const (
+	EnvelopeSnapshot      EnvelopeType = "snapshot"
+	EnvelopePresenceJoin  EnvelopeType = "presence.join"
+	EnvelopePresenceLeave EnvelopeType = "presence.leave"
+	EnvelopePresenceHeart EnvelopeType = "presence.heartbeat"
+	EnvelopeDiagramChange EnvelopeType = "diagram.changed"
+	EnvelopeError         EnvelopeType = "error"
+)
+
+// Envelope is the wrapper every realtime message uses. The Type field is
+// always present and matches one of the EnvelopeType values; the Payload is
+// the typed body (marshalled as a JSON object).
+type Envelope struct {
+	Type       EnvelopeType `json:"type"`
+	ServerTime string       `json:"serverTime"`
+	Payload    any          `json:"payload,omitempty"`
+}
+
+// PresenceMember is what a dashboard renders in the "online collaborators"
+// list. UserID is the auth identity, DisplayName is the value the realtime
+// envelope received at hello time and LastSeen is the partner of the
+// heartbeat: a peer is considered online as long as their last_heartbeat is
+// within freshnessWindow (default 60s).
+type PresenceMember struct {
+	UserID      string `json:"userId"`
+	DisplayName string `json:"displayName"`
+	LastSeen    string `json:"lastSeen"`
+}
+
+// PresenceSnapshot is the first payload the server sends to a freshly
+// connected member. It carries the live membership roster, the working
+// document mirror, and the latest version + review counters so the client
+// can reconcile without an extra GET.
+type PresenceSnapshot struct {
+	ProjectID    string          `json:"projectId"`
+	DiagramID    string          `json:"diagramId"`
+	Members      []PresenceMember `json:"members"`
+	Document     DiagramDocument `json:"document"`
+	Version      int             `json:"version"`
+	ReviewNumber int64           `json:"reviewNumber"`
+}
+
+// PresenceDelta is the join/leave event payload.
+type PresenceDelta struct {
+	ProjectID string         `json:"projectId"`
+	DiagramID string         `json:"diagramId"`
+	Member    PresenceMember `json:"member"`
+}
+
+// DiagramChangedEvent is the payload emitted on every successful autosave or
+// checkpoint POST. ReviewNumber is the new monotonic work counter clients
+// must echo on their next write; Version is the explicit-checkpoint count
+// (unchanged by autosave). ActorID is the user that produced the write so
+// connected peers can render "Edited by <name>" and reject stale echoes.
+// Kind is one of {"autosave", "checkpoint", "restore"}.
+type DiagramChangedEvent struct {
+	ActorID      string `json:"actorId"`
+	ReviewNumber int64  `json:"reviewNumber"`
+	Version      int    `json:"version"`
+	Kind         string `json:"kind"`
+	Message      string `json:"message,omitempty"`
+}
+
+// RealtimeError is the error payload. Code is a stable string clients can
+// switch on (e.g. "stale_review"); Message is human-readable.
+type RealtimeError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }

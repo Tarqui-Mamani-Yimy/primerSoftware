@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ai-uml-architect/gobackend/internal/domain"
+	"github.com/ai-uml-architect/gobackend/internal/realtime"
 	"github.com/ai-uml-architect/gobackend/internal/service"
 )
 
@@ -38,19 +40,57 @@ func Routes() []Route {
 	}
 }
 
+// RealtimeRoutes returns the WebSocket upgrade and ticket-issue routes
+// layered on top of the REST table. They share the membership gate with
+// the underlying store; the hub's resolver enforces it on every upgrade
+// attempt. Exposing them here keeps the REST table small while letting
+// the RouteTable harness assert their existence end-to-end.
+func RealtimeRoutes() []Route {
+	return []Route{
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/realtime-tickets"},
+		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/ws"},
+	}
+}
+
+// ticketIssuer is the boundary the httpapi.Server uses to mint WS handshake
+// tickets. Production wires a realtime.TicketSigner; tests inject a stub.
+type ticketIssuer interface {
+	Issue(projectID, diagramID, userID string, ttl time.Duration) (string, error)
+}
+
 // loginPattern is the only route that does not require a Bearer token,
 // mirroring SecurityConfig's permitAll for POST /api/v1/auth/login.
 const loginPattern = "/api/v1/auth/login"
 
-// Server serves the API over a Service with a configured CORS origin.
+// Server serves the API over a Service with a configured CORS origin. The
+// hub field is optional: when nil, the WebSocket route is not registered.
+// tickets is the ticket signer used by the browser-friendly ticket REST
+// route; nil disables ticket issuance.
 type Server struct {
 	services *service.Service
 	origin   string
+	hub      HubUpgradeHost
+	tickets  ticketIssuer
+}
+
+// HubUpgradeHost is the realtime wiring point: http.HandlerFunc returning
+// method satisfies it. The interface keeps httpapi decoupled from
+// gorilla/websocket so the REST harness stays pure stdlib.
+type HubUpgradeHost interface {
+	Upgrade(auth realtime.AuthFunc) http.HandlerFunc
 }
 
 // NewServer returns a Server. corsOrigin mirrors app.cors.allowed-origin
-// (single allowed origin).
-func NewServer(svc *service.Service, corsOrigin string) *Server {
+// (single allowed origin). Pass hub == nil to drop the WebSocket route.
+// Pass tickets == nil to drop the ticket REST route. Production wires all
+// three so the browser WebSocket has a ticket endpoint it can call.
+func NewServer(svc *service.Service, corsOrigin string, hub HubUpgradeHost, tickets ticketIssuer) *Server {
+	return &Server{services: svc, origin: corsOrigin, hub: hub, tickets: tickets}
+}
+
+// NewServerLegacy retains the GOBE-03 constructor: callers that have no
+// hub wired (the REST route-table harness) keep working.
+func NewServerLegacy(svc *service.Service, corsOrigin string) *Server {
 	return &Server{services: svc, origin: corsOrigin}
 }
 
@@ -76,6 +116,12 @@ func stub(w http.ResponseWriter, r *http.Request) {
 type ctxKey struct{}
 
 // Handler builds the full handler chain: CORS -> routes (+ auth per route).
+// The WebSocket route is registered only when a Hub is attached so the
+// REST endpoint harness can validate the table without a hub instance.
+//
+// s.hub is expected to be a real *realtime.Hub; we accept the unit
+// `HubUpgradeHost` interface when callers want to swap to a static-stub
+// hub (used in tests).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(http.MethodPost+" "+loginPattern, s.handleLogin)
@@ -89,6 +135,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/checkpoints", s.withAuth(s.handleCreateCheckpoint))
 	mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}/versions", s.withAuth(s.handleListVersions))
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore", s.withAuth(s.handleRestore))
+	if s.tickets != nil {
+		mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/realtime-tickets", s.withAuth(s.handleIssueRealtimeTicket))
+	}
+	if s.hub != nil {
+		upgrade, ok := s.hub.(realtime.HubUpgrader)
+		if ok {
+			mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}/ws", s.withAuth(upgrade.Upgrade(AuthFuncFor(s.services))))
+		}
+	}
 	return s.withCORS(mux)
 }
 
@@ -277,7 +332,7 @@ func (s *Server) handleUpdateDiagram(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ifMatch := ifMatchVersion(r.Header.Get("If-Match"))
-	doc, err := s.services.UpdateDiagram(r.Context(), projectID, diagramID, userOf(r), raw, ifMatch)
+	doc, err := s.services.UpdateDiagram(r.Context(), projectID, diagramID, userOf(r), raw, ifMatch, reviewFromRequest(r))
 	if mapError(w, err) {
 		return
 	}
@@ -302,6 +357,28 @@ func ifMatchVersion(header string) *int {
 	p := n
 	return &p
 }
+
+// reviewFromRequest extracts the per-diagram work counter from either the
+// JSON body's reviewNumber field or the X-Diagram-Review header. nil is
+// returned when neither is set; the service then refuses to overwrite an
+// existing diagram blindly and surfaces a 409 carrying the live baseline.
+func reviewFromRequest(r *http.Request) *int64 {
+	if v := r.Header.Get("X-Diagram-Review"); v != "" {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return nil
+		}
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return &n
+		}
+	}
+	return nil
+}
+
+// fromRequestBody is a body-scan version of reviewFromRequest; reserved
+// for routes where the body is the only source (e.g. PATCH) and currently
+// unused. It is doc-exported so future service implementations can opt in.
+func fromRequestBody(_ domain.DiagramDocument) *int64 { return nil }
 
 // handleCreateCheckpoint is the explicit-save path: it writes the new
 // working document AND appends a new diagram_versions row stamping the
@@ -331,7 +408,7 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 	if raw := strings.TrimSpace(r.Header.Get("X-Checkpoint-Message")); raw != "" {
 		message = &raw
 	}
-	version, err := s.services.CreateCheckpoint(r.Context(), projectID, diagramID, userOf(r), doc, message)
+	version, err := s.services.CreateCheckpoint(r.Context(), projectID, diagramID, userOf(r), doc, message, ifMatch, reviewFromRequest(r))
 	if mapError(w, err) {
 		return
 	}
@@ -355,6 +432,38 @@ func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {
 		out = []domain.DiagramVersion{}
 	}
 	s.writeJSON(w, http.StatusOK, out)
+}
+
+// handleIssueRealtimeTicket serves POST /api/v1/projects/{projectId}/diagrams/{id}/realtime-tickets.
+// It returns a short-lived signed ticket a browser WebSocket can send via
+// ?ticket=<...> without writing a custom Authorization header. The route
+// is bearer-gated like every other authenticated endpoint; the ticket is
+// re-verified at WS upgrade time so a stolen ticket cannot outlive
+// realtime.MaxTicketTTL.
+func (s *Server) handleIssueRealtimeTicket(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := projectOf(w, r)
+	if !ok {
+		return
+	}
+	diagramID, ok := diagramOf(w, r)
+	if !ok {
+		return
+	}
+	ttl := realtime.MaxTicketTTL
+	if raw := strings.TrimSpace(r.Header.Get("X-Realtime-Ticket-TTL")); raw != "" {
+		if n, err := time.ParseDuration(raw); err == nil && n > 0 && n <= realtime.MaxTicketTTL {
+			ttl = n
+		}
+	}
+	ticket, err := s.tickets.Issue(projectID, diagramID, userOf(r), ttl)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not issue realtime ticket")
+		return
+	}
+	s.writeJSON(w, http.StatusCreated, map[string]any{
+		"ticket":    ticket,
+		"expiresIn": int(ttl.Seconds()),
+	})
 }
 
 func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {

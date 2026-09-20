@@ -33,7 +33,7 @@ func testServer(t *testing.T) (*httpapi.Server, string) {
 	desc := "sales"
 	ms.SeedProject(projectID, "Sales", &desc)
 	ms.SeedMember(projectID, anaID, "OWNER")
-	srv := httpapi.NewServer(service.New(ms), "http://localhost:3000", nil)
+	srv := httpapi.NewServer(service.New(ms), "http://localhost:3000", nil, nil)
 	return srv, ""
 }
 
@@ -312,7 +312,7 @@ func TestNonMemberIsForbidden(t *testing.T) {
 	other := "99999999-9999-9999-9999-999999999999"
 	ms.SeedProject(other, "Private", &desc)
 	ms.SeedMember(other, "22222222-2222-2222-2222-222222222222", "OWNER")
-	srv := httpapi.NewServer(service.New(ms), "http://localhost:3000", nil)
+	srv := httpapi.NewServer(service.New(ms), "http://localhost:3000", nil, nil)
 	token := login(t, srv, "ana@example.com", "Password123!")
 
 	rec := doAuthed(t, srv, http.MethodGet, "/api/v1/projects/"+other+"/diagrams", nil, token)
