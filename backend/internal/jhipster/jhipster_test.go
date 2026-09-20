@@ -5,13 +5,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ai-uml-architect/gobackend/internal/domain"
 	"github.com/ai-uml-architect/gobackend/internal/jdlgen"
@@ -190,5 +193,85 @@ func TestGenerateSanitizesRunnerFailure(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "jhipster-artifact-") {
 		t.Errorf("error must not leak the ephemeral workdir: %v", err)
+	}
+}
+
+func TestGenerateClassifiesMissingPrerequisite(t *testing.T) {
+	runner := &fakeRunner{err: exec.ErrNotFound}
+	g := &Generator{Runner: runner, Version: Version, Timeout: 0}
+	_, err := g.Generate(context.Background(), alphaDoc(), jdlgen.DefaultOptions())
+	if err == nil {
+		t.Fatal("expected generation error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "prerequisite missing") || !strings.Contains(msg, "pnpm") {
+		t.Errorf("error must name the missing prerequisite (pnpm): %v", err)
+	}
+}
+
+func TestGenerateClassifiesJDLParseRejection(t *testing.T) {
+	const out = "ERROR! ERROR! MismatchedTokenException: Found an invalid token '}', at line: 27 and column: 1.\n" +
+		"    at /home/test-user/.cache/pnpm/dlx/abcdef/node_modules/chevrotain/src/parse/parser/parser.js:123:45\n"
+	runner := &fakeRunner{err: errors.New("exit status 1"), out: out}
+	g := &Generator{Runner: runner, Version: Version, Timeout: 0}
+	_, err := g.Generate(context.Background(), alphaDoc(), jdlgen.DefaultOptions())
+	if err == nil {
+		t.Fatal("expected generation error")
+	}
+	msg := err.Error()
+	for _, want := range []string{"rejected the generated JDL", "MismatchedTokenException", "line: 27"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error must contain %q, got:\n%s", want, msg)
+		}
+	}
+	if !strings.Contains(msg, "<abs-path>") {
+		t.Errorf("error must scrub absolute paths inside the log: %v", err)
+	}
+	if strings.Contains(msg, "/home/test-user") {
+		t.Errorf("error must not leak absolute home paths: %v", err)
+	}
+}
+
+func TestGenerateBoundsLogHeadAndTail(t *testing.T) {
+	big := "BEGIN:" + strings.Repeat("x", 3000) + ":END"
+	runner := &fakeRunner{err: errors.New("boom"), out: big}
+	g := &Generator{Runner: runner, Version: Version, Timeout: 0}
+	_, err := g.Generate(context.Background(), alphaDoc(), jdlgen.DefaultOptions())
+	if err == nil {
+		t.Fatal("expected generation error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "BEGIN:") || !strings.Contains(msg, ":END") {
+		t.Errorf("sanitized log must keep the head and the tail, got:\n%s", msg)
+	}
+	if !strings.Contains(msg, "bytes omitted") {
+		t.Errorf("oversized log must carry an omission marker, got:\n%s", msg)
+	}
+}
+
+func TestGenerateClassifiesTimeout(t *testing.T) {
+	runner := &fakeRunner{err: errors.New("signal: killed")}
+	g := &Generator{Runner: runner, Version: Version, Timeout: time.Minute}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	_, err := g.Generate(ctx, alphaDoc(), jdlgen.DefaultOptions())
+	if err == nil {
+		t.Fatal("expected generation error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "timed out after") {
+		t.Errorf("expired context must be classified as a timeout, got:\n%s", msg)
+	}
+}
+
+func TestGenerateClassifiesPnpmError(t *testing.T) {
+	runner := &fakeRunner{err: errors.New("boom"), out: "ERR_PNPM_UNSUPPORTED_ENGINE Unsupported environment (bad pnpm version)\nmore output"}
+	g := &Generator{Runner: runner, Version: Version, Timeout: 0}
+	_, err := g.Generate(context.Background(), alphaDoc(), jdlgen.DefaultOptions())
+	if err == nil {
+		t.Fatal("expected generation error")
+	}
+	if !strings.Contains(err.Error(), "pnpm reported an error") || !strings.Contains(err.Error(), "ERR_PNPM_UNSUPPORTED_ENGINE") {
+		t.Errorf("pnpm failure must be classified as such, got:\n%s", err.Error())
 	}
 }

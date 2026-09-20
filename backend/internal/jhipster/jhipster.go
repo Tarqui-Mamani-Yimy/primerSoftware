@@ -18,11 +18,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -104,9 +106,9 @@ func (g *Generator) Generate(ctx context.Context, doc domain.DiagramDocument, o 
 		return Result{}, fmt.Errorf("write model.jdl: %w", err)
 	}
 
-	out, err := g.Runner.Run(ctx, workDir, "pnpm", "dlx", "generator-jhipster@"+genVersion, "jdl", "model.jdl", "--force", "--skip-install")
+	out, err := g.Runner.Run(ctx, workDir, "pnpm", "dlx", "--ignore-scripts", "generator-jhipster@"+genVersion, "jdl", "model.jdl", "--force", "--skip-install")
 	if err != nil {
-		return Result{}, fmt.Errorf("JHipster generation failed: %s", sanitizeOutput(out, workDir))
+		return Result{}, classifyRunnerFailure(ctx, err, out, workDir, genVersion, g.Timeout)
 	}
 
 	files, err := listGenerated(workDir)
@@ -141,14 +143,111 @@ func invocation(version string) string {
 	return fmt.Sprintf("pnpm dlx --ignore-scripts generator-jhipster@%s jdl model.jdl --force --skip-install", version)
 }
 
-// sanitizeOutput strips the ephemeral absolute workdir from generator output
-// (it contains the local temp path) and bounds the tail so error envelopes
-// stay small enough to embed in a JSON message.
-func sanitizeOutput(out, workDir string) string {
+// GenerationFailure reports why the pinned generator run failed. Cause is a
+// one-line, actionable high-level diagnosis (missing prerequisite, JDL parse
+// rejection, timeout, pnpm error, or a plain runner failure); Log is the
+// generator output, sanitized and bounded so the error fits safely in a JSON
+// envelope without leaking absolute paths or flooding the response.
+type GenerationFailure struct {
+	Cause string
+	Log   string
+}
+
+func (e *GenerationFailure) Error() string {
+	return "JHipster generation failed: " + e.Cause + "\n" + e.Log
+}
+
+// classifyRunnerFailure turns a runner error into a GenerationFailure with a
+// high-level cause. Classification reads the error kind and the first symptom
+// in the combined output, never a stack trace tail: the endpoint must tell the
+// user what to fix, not replay JHipster's internals.
+func classifyRunnerFailure(ctx context.Context, err error, out, workDir, version string, timeout time.Duration) error {
+	log := sanitizeLog(out, workDir)
+	if errors.Is(err, exec.ErrNotFound) {
+		return &GenerationFailure{
+			Cause: fmt.Sprintf("prerequisite missing: pnpm was not found on PATH (generator-jhipster %s runs via `pnpm dlx`); install Node.js with pnpm enabled (e.g. Corepack) and retry", version),
+			Log:   log,
+		}
+	}
+	if timeout > 0 && ctx.Err() == context.DeadlineExceeded {
+		return &GenerationFailure{
+			Cause: fmt.Sprintf("generation timed out after %s (the first run also downloads the pinned generator into the pnpm store; retry once before assuming a real failure)", timeout),
+			Log:   log,
+		}
+	}
+	if line := firstJDLParseSymptom(out); line != "" {
+		return &GenerationFailure{
+			Cause: fmt.Sprintf("JHipster rejected the generated JDL: %s (the model.jdl emitted from the UML diagram must parse cleanly; reserved-word and invalid-name collisions are renamed with a warning, so treat this as a generation bug)", line),
+			Log:   log,
+		}
+	}
+	if line := firstLineContaining(out, "ERR_PNPM"); line != "" {
+		return &GenerationFailure{
+			Cause: fmt.Sprintf("pnpm reported an error: %s (package/registry issue independent of the UML model)", line),
+			Log:   log,
+		}
+	}
+	return &GenerationFailure{
+		Cause: "the generator exited with an error (details in the sanitized log below)",
+		Log:   log,
+	}
+}
+
+// firstJDLParseSymptom returns the first output line that marks a JDL grammar
+// rejection — the exact line a user needs to act on — or "" when absent.
+func firstJDLParseSymptom(out string) string {
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.Contains(trimmed, "MismatchedTokenException"),
+			strings.Contains(trimmed, "NoViableAltException"),
+			strings.Contains(trimmed, "ERROR! ERROR!"):
+			if len(trimmed) > 220 {
+				trimmed = trimmed[:220] + "…"
+			}
+			return trimmed
+		}
+	}
+	return ""
+}
+
+// firstLineContaining returns the first output line that contains needle, or
+// "" when absent.
+func firstLineContaining(out, needle string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, needle) {
+			t := strings.TrimSpace(line)
+			if len(t) > 220 {
+				t = t[:220] + "…"
+			}
+			return t
+		}
+	}
+	return ""
+}
+
+// absPathRe matches absolute filesystem paths of two or more segments. The
+// pnpm dlx store lives under the user's home, but generator stack traces can
+// embed absolute paths anywhere (tests use fake homes), so every match is
+// scrubbed after the known workdir/home/temp placeholders are applied.
+var absPathRe = regexp.MustCompile(`/(?:[A-Za-z0-9_.@+~-]+/)+[A-Za-z0-9_.@+~-]*`)
+
+// sanitizeLog strips absolute environment paths from generator output (the
+// ephemeral workdir, the user's home, the OS temp root, and any remaining
+// absolute filesystem path) and bounds the result to a safe head+tail window.
+func sanitizeLog(out, workDir string) string {
 	out = strings.ReplaceAll(out, workDir, "<workdir>")
-	const max = 1200
-	if len(out) > max {
-		out = "…" + out[len(out)-max:]
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		out = strings.ReplaceAll(out, home, "<home>")
+	}
+	if tmp := os.TempDir(); tmp != "" {
+		out = strings.ReplaceAll(out, tmp, "<tmp>")
+	}
+	out = absPathRe.ReplaceAllString(out, "<abs-path>")
+	const head, tail = 400, 800
+	if len(out) > head+tail {
+		out = out[:head] + fmt.Sprintf("\n…[%d bytes omitted]…\n", len(out)-head-tail) + out[len(out)-tail:]
 	}
 	return strings.TrimSpace(out)
 }
