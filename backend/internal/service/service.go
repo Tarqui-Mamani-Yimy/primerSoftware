@@ -331,9 +331,38 @@ func toDocument(payload []byte) (domain.DiagramDocument, error) {
 	return doc, nil
 }
 
-// CreateDiagram ports DiagramService.create: fresh id, draft autosave, and
-// an implicit "Initial revision" checkpoint so the new diagram has a stable
-// starting point. The HTTP layer maps success to 201.
+func hydrateCheckpointVersion(ctx context.Context, st store.Store, doc *domain.DiagramDocument, v *store.VersionRecord) error {
+	if v != nil {
+		doc.Version = v.Number
+		doc.ReviewNumber = v.ReviewNumber
+		return nil
+	}
+	// Fallback when the store returns only the diagrams row: pull the
+	// live counters so the response carries the bumped baseline.
+	review, err := st.CurrentReview(ctx, *doc.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	version, err := st.CurrentVersion(ctx, *doc.ID)
+	if err != nil {
+		return err
+	}
+	doc.Version = version
+	doc.ReviewNumber = review
+	return nil
+}
+
+// CreateDiagram ports DiagramService.create: fresh id, manual seed of the
+// diagrams row (review_number = 1) and an implicit "Initial revision"
+// checkpoint (review_number = 2) so the new diagram has a stable starting
+// point. Both happen inside AppendCheckpoint's serialized transaction so
+// concurrent calls cannot both see a missing row and double-insert.
+//
+// SaveDocument is autosave-only; the create path never touches it. The
+// HTTP layer maps success to 201.
 func (s *Service) CreateDiagram(ctx context.Context, projectID, userID string, raw domain.DiagramDocument) (domain.DiagramDocument, error) {
 	if err := s.requireMember(ctx, projectID, userID); err != nil {
 		return domain.DiagramDocument{}, err
@@ -344,24 +373,60 @@ func (s *Service) CreateDiagram(ctx context.Context, projectID, userID string, r
 		return domain.DiagramDocument{}, err
 	}
 	now := time.Now().UTC()
-	diagram := store.DiagramRecord{ID: id, ProjectID: projectID, Name: doc.Name, Document: payload, CreatedBy: userID, UpdatedAt: now}
-	if _, err := s.store.SaveDocument(ctx, diagram, nil); err != nil {
+	diagram := store.DiagramRecord{
+		ID: id, ProjectID: projectID, Name: doc.Name,
+		Document: payload, CreatedBy: userID, UpdatedAt: now,
+	}
+	if err := requireNotExists(ctx, s.store, "create diagram", projectID, id); err != nil {
 		return domain.DiagramDocument{}, err
 	}
 	version, err := s.store.AppendCheckpoint(ctx, diagram, nil, strPtr("Initial revision"))
 	if err != nil {
 		return domain.DiagramDocument{}, err
 	}
-	doc.ReviewNumber = version.ReviewNumber
-	doc.Version = version.Number
+	if err := hydrateCheckpointVersion(ctx, s.store, &doc, &version); err != nil {
+		return domain.DiagramDocument{}, err
+	}
 	s.emitChanged(projectID, id, domain.DiagramChangedEvent{
 		ActorID:      userID,
 		ReviewNumber: version.ReviewNumber,
 		Version:      version.Number,
 		Kind:         "checkpoint",
+		Message:      "Initial revision",
 	})
 	return doc, nil
 }
+
+// requireNotExists guards CreateDiagram against updating a row that the
+// store already sees. Without this check, AppendCheckpoint(nil) returns
+// ErrReviewMismatch{Current: live} for an existing diagram and our
+// would-be-create collides with the bumped state. A NotFound lookup here
+// is the only "ok" outcome; anything else is an error the caller can
+// surface as 409 or 500.
+func requireNotExists(ctx context.Context, st store.Store, op, projectID, diagramID string) error {
+	_, err := st.FindDiagram(ctx, projectID, diagramID)
+	if err == nil {
+		return ErrCreateCollision{Op: op, DiagramID: diagramID}
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+// ErrCreateCollision is returned when CreateDiagram finds an existing
+// row for the requested id. AppendCheckpoint(nil) would otherwise refuse
+// with ErrReviewMismatch, which is the wrong status code for a create
+// path; the router maps ErrCreateCollision to 409 too.
+type ErrCreateCollision struct {
+	Op       string
+	DiagramID string
+}
+
+func (e ErrCreateCollision) Error() string {
+	return e.Op + ": diagram " + e.DiagramID + " already exists"
+}
+
 
 func strPtr(s string) *string { return &s }
 
@@ -416,52 +481,49 @@ func (s *Service) ListDiagrams(ctx context.Context, projectID, userID string) ([
 
 // UpdateDiagram is the autosave path: it writes the new working document
 // using a CAS gate on the per-diagram review number, never appending a
-// version row. ifMatch (the If-Match HTTP header) pins the explicit-checkpoint
-// counter; ifReview (the X-Diagram-Review HTTP header) pins the work
-// counter. The contract is strictly positive integers only:
+// version row. baseline resolution is the contract's center:
 //
-//   - body.reviewNumber > 0 OR header > 0 → real CAS: mismatch returns
-//     ConflictError carrying the live server document; client retries
-//     with the bumped baseline.
-//   - both 0 / absent → LEGACY WRITE: the service reads the live review
-//     number from the diagrams row, passes it as the CAS baseline, and
-//     bumps by one atomically. The save never 409s on legacy writes.
+//   - body.reviewNumber > 0 OR header > 0 → positive baseline. The
+//     UPDATE WHERE review_number = $baseline is the SINGLE atomic
+//     decision. A stale positive baseline returns 409 carrying the live
+//     server document so the client can retry with the bumped value.
+//     There is NO pre-read CAS that returns 409 before the UPDATE runs;
+//     the service trusts the UPDATE's atomic answer.
 //
-// The service never passes &0 to the store. Either the resolved baseline
-// is a positive integer (real CAS) or it is the freshly-read live value
-// (legacy write). Either way the SQL UPDATE has a useful WHERE clause.
+//   - body.reviewNumber == 0 AND header == 0 / absent → LEGACY WRITE.
+//     The service reads the LIVE review number ONCE and uses it as the
+//     CAS baseline. The SQL UPDATE always has a useful WHERE clause and
+//     the save never 409s. Two concurrent legacy writers race for the
+//     same baseline; one wins and bumps, the other loses and retries.
+//     The losing retry is a SECOND legacy write with the new live value.
+//
+// ifMatch pins the explicit-checkpoint counter; if a positive check
+// mismatches the live current_version the service refuses BEFORE the
+// UPDATE so a concurrent checkpoint cannot be silently absorbed.
 func (s *Service) UpdateDiagram(ctx context.Context, projectID, diagramID, userID string, raw domain.DiagramDocument, ifMatch *int, ifReview *int64) (domain.DiagramDocument, error) {
 	if err := s.requireMember(ctx, projectID, userID); err != nil {
 		return domain.DiagramDocument{}, err
 	}
-	if _, err := s.store.FindDiagram(ctx, projectID, diagramID); err != nil {
+	currentVersion, err := s.store.CurrentVersion(ctx, diagramID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return domain.DiagramDocument{}, err
+	}
+	currentReview, err := s.store.CurrentReview(ctx, diagramID)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return domain.DiagramDocument{}, NotFoundError{Message: "Diagram not found"}
 		}
 		return domain.DiagramDocument{}, err
 	}
-	currentVersion, err := s.store.CurrentVersion(ctx, diagramID)
-	if err != nil {
-		return domain.DiagramDocument{}, err
-	}
-	currentReview, err := s.store.CurrentReview(ctx, diagramID)
-	if err != nil {
-		return domain.DiagramDocument{}, err
-	}
-	if ifMatch != nil && *ifMatch != currentVersion {
-		serverDoc, err := s.GetDiagram(ctx, projectID, diagramID, userID)
-		if err != nil {
-			return domain.DiagramDocument{}, err
+	if ifMatch != nil && currentVersion != -1 && *ifMatch != currentVersion {
+		serverDoc, gerr := s.GetDiagram(ctx, projectID, diagramID, userID)
+		if gerr != nil {
+			return domain.DiagramDocument{}, gerr
 		}
 		return domain.DiagramDocument{}, ConflictError{
 			Current: serverDoc, Expected: raw.Version, ExpectedReview: ifReviewAsRaw(ifReview), ActualReview: currentReview,
 		}
 	}
-	// Pick the CAS baseline: header wins over body, then require it to be
-	// a positive integer. A zero / absent baseline is treated as a legacy
-	// write: we pass &currentReview so the SQL UPDATE always has a real
-	// baseline and the save always succeeds (incrementally bumps the
-	// counter). Legacy writes NEVER produce a 409.
 	resolvedReview := int64(0)
 	if ifReview != nil {
 		resolvedReview = *ifReview
@@ -472,15 +534,6 @@ func (s *Service) UpdateDiagram(ctx context.Context, projectID, diagramID, userI
 	baseline := &currentReview
 	if resolvedReview > 0 {
 		baseline = &resolvedReview
-	}
-	if resolvedReview > 0 && resolvedReview != currentReview {
-		serverDoc, err := s.GetDiagram(ctx, projectID, diagramID, userID)
-		if err != nil {
-			return domain.DiagramDocument{}, err
-		}
-		return domain.DiagramDocument{}, ConflictError{
-			Current: serverDoc, Expected: raw.Version, ExpectedReview: resolvedReview, ActualReview: currentReview,
-		}
 	}
 	doc, payload, err := normalize(raw, diagramID)
 	if err != nil {
@@ -493,6 +546,9 @@ func (s *Service) UpdateDiagram(ctx context.Context, projectID, diagramID, userI
 	)
 	if err != nil {
 		if current, ok := store.AsReviewMismatch(err); ok {
+			if current == 0 {
+				return domain.DiagramDocument{}, NotFoundError{Message: "Diagram not found"}
+			}
 			serverDoc, gerr := s.GetDiagram(ctx, projectID, diagramID, userID)
 			if gerr != nil {
 				return domain.DiagramDocument{}, gerr

@@ -11,11 +11,11 @@
 //   - findFirstByDiagramIdOrderByVersionNumberDesc for max+1 numbering
 //   - findByDiagramIdOrderByVersionNumberDesc / findByDiagramIdAndVersionNumber
 //
-// Autosave and explicit checkpoints are split into SaveWorkingDocument and
+// Autosave and explicit checkpoints are split into SaveDocument and
 // AppendCheckpoint so untrusted autosave traffic never grows the version
-// history. AppendCheckpoint computes version_number inside the transaction and
-// stamps created_by with the actor so authorship is preserved independently
-// of the diagram creator.
+// history. Versioning controls live entirely in AppendCheckpoint: it
+// owns the diagrams row lifecycle together with the diagram_versions
+// insert so the two land atomically inside one SERIALIZABLE tx.
 
 package store
 
@@ -191,27 +191,17 @@ func isAccessCodeConflict(err error) bool {
 	return pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "access_code")
 }
 
-// SaveDocument upserts the diagrams row with the current JSONB document.
-// A non-nil expectedReview is the CAS gate: it matches against the
-// row's current review_number, and on success the row's review_number is
-// bumped atomically by one. A nil expectedReview implies "create the
-// diagram for the first time" — the row is inserted with review_number
-// = 1 and NOT otherwise incremented (CreateDiagram calls AppendCheckpoint
-// next to land at 2 explicitly).
+// SaveDocument is the autosave-only path: a strict-CAS UPDATE under a
+// positive expectedReview baseline. CreateDiagram no longer calls this;
+// it forwards to AppendCheckpoint instead. A nil expectedReview is
+// rejected so the autosave layer cannot accidentally recreate a
+// diagram row that never existed.
 //
-// It does NOT touch diagram_versions: explicit checkpoints own the
-// version history. The diagrams row carries the autosave snapshot.
+// The diagrams row carries the autosave snapshot. diagram_versions is
+// untouched; explicit checkpoints own the version history.
 func (p *Postgres) SaveDocument(ctx context.Context, d DiagramRecord, expectedReview *int64) (int64, error) {
 	if expectedReview == nil {
-		var newReview int64
-		err := p.pool.QueryRow(ctx, `INSERT INTO diagrams (id, project_id, name, document, created_by, updated_at, review_number)
-  VALUES ($1, $2, $3, $4::jsonb, $5, $6, 1)
-  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, document = EXCLUDED.document, updated_at = EXCLUDED.updated_at
-  RETURNING review_number`, d.ID, d.ProjectID, d.Name, string(d.Document), d.CreatedBy, d.UpdatedAt).Scan(&newReview)
-		if err != nil {
-			return 0, err
-		}
-		return newReview, nil
+		return 0, errors.New("store: SaveDocument requires a non-nil expectedReview; AppendCheckpoint owns creates")
 	}
 	var newReview int64
 	err := p.pool.QueryRow(ctx, `UPDATE diagrams
@@ -232,72 +222,73 @@ func (p *Postgres) SaveDocument(ctx context.Context, d DiagramRecord, expectedRe
 	return newReview, nil
 }
 
-// AppendCheckpoint writes a new diagram_versions row with version_number =
-// max+1 AND rewrites the diagrams row (name, document, updated_at, +1
-// review_number) inside ONE transaction. created_by on the version row is
-// stamped with the actor (preserving authorship even when the actor differs
-// from the diagram owner); message is the optional note supplied by the
-// client. Review bumps atomically so two concurrent /checkpoints POSTs
-// cannot both succeed: either transaction sees the other's bumped
-// review_number on SELECT FOR UPDATE and fails the CAS with ErrReviewMismatch.
+// AppendCheckpoint is the create-or-bump path for the diagram version
+// timeline. It owns the diagrams row lifecycle together with the
+// diagram_versions insert so the two land atomically:
 //
-// Atomicity guarantee (V6+): the diagrams row and the diagram_versions row
-// land on the same timeline. A crash between row update and version insert
-// rolls both back, so concurrent readers never see the bumped document
-// without the matching version row.
+//   - nil baseline (Service.CreateDiagram): synthesises a fresh row
+//     when none exists, or bumps an existing row by one. The freshly
+//     inserted diagrams row starts at review_number = 1; the version
+//     row is stamped with review_number = 2 so concurrent readers can
+//     detect create-vs-bump without ambiguity.
+//   - non-nil baseline (Service.CreateCheckpoint / RestoreDiagram /
+//     internal append paths): strict-CAS UPDATE. Stale baseline
+//     returns ErrReviewMismatch with the live current_review, never
+//     the bumped value.
+//
+// created_by on the version row is stamped with the actor (preserving
+// authorship even when the actor differs from the diagram owner);
+// message is the optional note supplied by the client. SELECT FOR
+// UPDATE locks the diagrams row inside the tx so two concurrent writers
+// cannot both see the same current_review and both satisfy CAS.
 func (p *Postgres) AppendCheckpoint(ctx context.Context, d DiagramRecord, expectedReview *int64, message *string) (VersionRecord, error) {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return VersionRecord{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	var nextReview int64
-	var updateErr error
-	if expectedReview != nil {
-		updateErr = tx.QueryRow(ctx, `UPDATE diagrams
-  SET name = $2, document = $3::jsonb, updated_at = $4, review_number = review_number + 1
-  WHERE id = $1 AND review_number = $5
-  RETURNING review_number`,
-			d.ID, d.Name, string(d.Document), d.UpdatedAt, *expectedReview).Scan(&nextReview)
-	} else {
-		// No baseline supplied: this is the create-only path used by
-		// service.CreateDiagram on the implicit "Initial revision"
-		// checkpoint. We bind to review_number = 0 so a concurrent
-		// create never races a second writer into double-insert.
-		updateErr = tx.QueryRow(ctx, `UPDATE diagrams
-  SET name = $2, document = $3::jsonb, updated_at = $4, review_number = review_number + 1
-  WHERE id = $1 AND review_number = 0
-  RETURNING review_number`,
-			d.ID, d.Name, string(d.Document), d.UpdatedAt).Scan(&nextReview)
-	}
-	if updateErr != nil {
-		if errors.Is(updateErr, pgx.ErrNoRows) {
-			// Two reasons we hit zero rows: the row does not exist yet,
-			// or the supplied review baseline is stale. Disambiguate via a
-			// second query so the caller gets a precise error.
-			var current int64
-			if err := tx.QueryRow(ctx, `SELECT review_number FROM diagrams WHERE id = $1`, d.ID).Scan(&current); err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return VersionRecord{}, ErrNotFound
-				}
-				return VersionRecord{}, err
-			} else if current == 0 {
-				// Create path: the diagrams row was created with
-				// review_number = 0 by ServiceResolver or a manual
-				// upsert. We accept the FIRST AppendCheckpoint as
-				// implicit "Initial revision" and synthesize the row.
-				if err := p.seedDiagramForCreate(ctx, tx, d); err != nil {
-					return VersionRecord{}, err
-				}
-				nextReview = 1
-			} else {
-				return VersionRecord{}, ErrReviewMismatch{Current: current}
-			}
-		} else {
-			return VersionRecord{}, updateErr
+
+	var current int64
+	var rowExists bool
+	if err := tx.QueryRow(ctx, `SELECT review_number FROM diagrams WHERE id = $1 FOR UPDATE`, d.ID).Scan(&current); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return VersionRecord{}, err
 		}
+		rowExists = false
+	} else {
+		rowExists = true
 	}
-	var next int
+
+	var nextReview int64
+	switch {
+	case expectedReview == nil && !rowExists:
+		if _, err := tx.Exec(ctx, `INSERT INTO diagrams
+  (id, project_id, name, document, created_by, updated_at, review_number)
+  VALUES ($1, $2, $3, $4::jsonb, $5, $6, 1)`,
+			d.ID, d.ProjectID, d.Name, string(d.Document), d.CreatedBy, d.UpdatedAt); err != nil {
+			return VersionRecord{}, err
+		}
+		nextReview = 1
+	case expectedReview != nil && rowExists && current == *expectedReview:
+		if err := tx.QueryRow(ctx, `UPDATE diagrams
+  SET name = $2, document = $3::jsonb, updated_at = $4, review_number = review_number + 1
+  WHERE id = $1
+  RETURNING review_number`,
+			d.ID, d.Name, string(d.Document), d.UpdatedAt).Scan(&nextReview); err != nil {
+			return VersionRecord{}, err
+		}
+	case expectedReview == nil && rowExists:
+		// nil baseline but the row already exists: a previous call
+		// could have left a row. Surface ErrReviewMismatch with the
+		// live current_review so the service can retry.
+		return VersionRecord{}, ErrReviewMismatch{Current: current}
+	case expectedReview != nil && !rowExists:
+		return VersionRecord{}, ErrReviewMismatch{Current: 0}
+	case expectedReview != nil && rowExists && current != *expectedReview:
+		return VersionRecord{}, ErrReviewMismatch{Current: current}
+	}
+
+	next := 1
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version_number), 0) + 1
   FROM diagram_versions WHERE diagram_id = $1`, d.ID).Scan(&next); err != nil {
 		return VersionRecord{}, err
@@ -312,36 +303,24 @@ func (p *Postgres) AppendCheckpoint(ctx context.Context, d DiagramRecord, expect
 	}
 	if err := tx.Commit(ctx); err != nil {
 		if isSerializationConflict(err) {
-			// A concurrent commit won the race; surface the post-bump review
-			// number so the client can retry with a fresh baseline.
-			current, lookupErr := p.CurrentReview(ctx, d.ID)
+			live, lookupErr := p.CurrentReview(ctx, d.ID)
 			if lookupErr != nil {
 				return VersionRecord{}, lookupErr
 			}
-			return VersionRecord{}, ErrReviewMismatch{Current: current}
+			return VersionRecord{}, ErrReviewMismatch{Current: live}
 		}
 		return VersionRecord{}, err
 	}
 	return VersionRecord{
-		ID:          id,
-		DiagramID:   d.ID,
-		Number:      next,
+		ID:           id,
+		DiagramID:    d.ID,
+		Number:       next,
 		ReviewNumber: nextReview,
-		Document:    append([]byte(nil), d.Document...),
-		CreatedBy:   d.CreatedBy,
-		CreatedAt:   createdAt,
-		Message:     message,
+		Document:     append([]byte(nil), d.Document...),
+		CreatedBy:    d.CreatedBy,
+		CreatedAt:    createdAt,
+		Message:      message,
 	}, nil
-}
-
-// seedDiagramForCreate inserts a fresh diagrams row for the create-only
-// path used by Service.CreateDiagram. It runs inside the same transaction
-// as the AppendCheckpoint so the version insert cannot precede the row.
-func (p *Postgres) seedDiagramForCreate(ctx context.Context, tx pgx.Tx, d DiagramRecord) error {
-	_, err := tx.Exec(ctx, `INSERT INTO diagrams (id, project_id, name, document, created_by, updated_at, review_number)
-  VALUES ($1, $2, $3, $4::jsonb, $5, $6, 1)`,
-		d.ID, d.ProjectID, d.Name, string(d.Document), d.CreatedBy, d.UpdatedAt)
-	return err
 }
 
 // CurrentReview returns the diagrams row's current review_number (0 when no

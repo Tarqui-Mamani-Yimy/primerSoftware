@@ -9,6 +9,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -209,76 +210,88 @@ func (m *MemoryStore) JoinProject(_ context.Context, projectID, userID string) (
 	}, nil
 }
 
-// SaveDocument mirrors the Postgres CAS contract. A nil expectedReview is
-// accepted as "create": the row is seeded at review_number = 1. A non-nil
-// baseline that does not match the row's current review_number produces
-// ErrReviewMismatch carrying the row's current value; the row is left intact
-// and the bumped value is never returned.
+// SaveDocument mirrors autosave-only: a strict-CAS UPDATE under a positive
+// baseline. Create paths do NOT go here anymore; AppendCheckpoint owns the
+// diagrams row lifecycle. A nil expectedReview is rejected so autosave can
+// never recreate a diagram row that never existed.
 func (m *MemoryStore) SaveDocument(_ context.Context, d DiagramRecord, expectedReview *int64) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if expectedReview == nil {
+		return 0, errors.New("store: SaveDocument requires a non-nil expectedReview; AppendCheckpoint owns creates")
+	}
+	if d.UpdatedAt.IsZero() {
+		d.UpdatedAt = time.Now().UTC()
+	}
+	existing, ok := m.diagrams[d.ID]
+	if !ok {
+		return 0, ErrReviewMismatch{Current: 0}
+	}
+	if existing.ReviewNumber != *expectedReview {
+		return existing.ReviewNumber, ErrReviewMismatch{Current: existing.ReviewNumber}
+	}
+	// preserve created_by; autosave never re-stamps the diagram creator.
+	if existing.CreatedBy != "" {
+		d.CreatedBy = existing.CreatedBy
+	}
+	d.ReviewNumber = existing.ReviewNumber + 1
+	m.diagrams[d.ID] = d
+	return d.ReviewNumber, nil
+}
+
+// AppendCheckpoint mirrors Postgres: create-or-bump with strict CAS or
+// nil-baseline create. It owns the diagrams row lifecycle together with
+// the diagram_versions insert under the same lock so concurrent writers
+// serialize cleanly.
+//
+//   - nil baseline + row missing: synthesise diagrams row at
+//     review_number = 1; version row also stamped at review_number = 1
+//     so the implicit "Initial revision" lives at the same timeline as
+//     a CREATE step that doubled as a checkpoint write.
+//   - nil baseline + row present: ErrReviewMismatch with the live
+//     current_review so the service can retry.
+//   - positive baseline + row present + current==baseline: bump + 1 on
+//     both the diagrams row and the version row.
+//   - positive baseline + row absent: ErrReviewMismatch{Current: 0}.
+// created_by is preserved across the bump so the diagram creator stays
+// attributed to the original author.
+func (m *MemoryStore) AppendCheckpoint(_ context.Context, d DiagramRecord, expectedReview *int64, message *string) (VersionRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d.UpdatedAt.IsZero() {
 		d.UpdatedAt = time.Now().UTC()
 	}
-	if existing, ok := m.diagrams[d.ID]; ok {
-		if expectedReview != nil && existing.ReviewNumber != *expectedReview {
-			return existing.ReviewNumber, ErrReviewMismatch{Current: existing.ReviewNumber}
-		}
-		// preserve created_by; do not let autosave re-stamp the diagram creator
-		if existing.CreatedBy != "" {
-			d.CreatedBy = existing.CreatedBy
-		}
-		d.ReviewNumber = existing.ReviewNumber + 1
-	} else if expectedReview == nil {
-		d.ReviewNumber = 1
-	} else {
-		return 0, ErrReviewMismatch{Current: 0}
-	}
-	m.diagrams[d.ID] = d
-	return d.ReviewNumber, nil
-}
-
-// AppendCheckpoint mirrors Postgres: assign version_number = max+1, stamp
-// CreatedBy with the actor (authorship), optionally store Message, and bump
-// diagrams.review_number atomically under the same lock so concurrent
-// checkpoints cannot both succeed without surfacing ErrReviewMismatch.
-func (m *MemoryStore) AppendCheckpoint(_ context.Context, d DiagramRecord, expectedReview *int64, message *string) (VersionRecord, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	current, ok := m.diagrams[d.ID]
-	if !ok || current.ID == "" {
-		if expectedReview != nil {
-			return VersionRecord{}, ErrReviewMismatch{Current: 0}
-		}
-		// Synthesize a row when the service is appending to a brand-new
-		// diagram that hasn't been autosaved yet, matching the Postgres
-		// behaviour of letting the document live in diagram_versions in
-		// that case.
+	var nextReview int64
+	switch {
+	case expectedReview == nil && !ok:
 		current = d
 		current.ReviewNumber = 1
-		if current.UpdatedAt.IsZero() {
-			current.UpdatedAt = time.Now().UTC()
-		}
 		m.diagrams[d.ID] = current
-	} else if expectedReview != nil && current.ReviewNumber != *expectedReview {
+		nextReview = 1
+	case expectedReview != nil && ok && current.ReviewNumber == *expectedReview:
+		nextReview = current.ReviewNumber + 1
+		if d.CreatedBy != "" && current.CreatedBy == "" {
+			current.CreatedBy = d.CreatedBy
+		}
+		if d.Document != nil {
+			current.Document = append([]byte(nil), d.Document...)
+		}
+		if d.Name != "" {
+			current.Name = d.Name
+		}
+		if !d.UpdatedAt.IsZero() {
+			current.UpdatedAt = d.UpdatedAt
+		}
+		current.ReviewNumber = nextReview
+		m.diagrams[d.ID] = current
+	case expectedReview == nil && ok:
+		return VersionRecord{}, ErrReviewMismatch{Current: current.ReviewNumber}
+	case expectedReview != nil && !ok:
+		return VersionRecord{}, ErrReviewMismatch{Current: 0}
+	case expectedReview != nil && ok && current.ReviewNumber != *expectedReview:
 		return VersionRecord{}, ErrReviewMismatch{Current: current.ReviewNumber}
 	}
-	nextReview := current.ReviewNumber + 1
-	current.ReviewNumber = nextReview
-	if d.CreatedBy != "" && current.CreatedBy == "" {
-		current.CreatedBy = d.CreatedBy
-	}
-	if d.Document != nil {
-		current.Document = append([]byte(nil), d.Document...)
-	}
-	if d.Name != "" {
-		current.Name = d.Name
-	}
-	if !d.UpdatedAt.IsZero() {
-		current.UpdatedAt = d.UpdatedAt
-	}
-	current.ReviewNumber = nextReview
-	m.diagrams[d.ID] = current
 
 	next := 1
 	for _, existing := range m.versions[d.ID] {

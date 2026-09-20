@@ -221,8 +221,8 @@ func TestDiagramAutosaveKeepsVersionStable(t *testing.T) {
 	if created.Version != 1 {
 		t.Fatalf("create must seed an implicit checkpoint v1, got version %d", created.Version)
 	}
-	if created.ReviewNumber != 2 {
-		t.Fatalf("create must end at review_number=2 (create insert 1 + initial checkpoint 2), got %d", created.ReviewNumber)
+	if created.ReviewNumber != 1 {
+		t.Fatalf("create must end at review_number=1 (AppendCheckpoint(nil) seeds the diagrams row at 1), got %d", created.ReviewNumber)
 	}
 	diagramID := *created.ID
 
