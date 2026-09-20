@@ -54,6 +54,99 @@ type Report struct {
 	Warnings      []string  `json:"warnings"`
 }
 
+// Options pins the JHipster application scaffold emitted by ExportArtifact.
+// The zero value is not valid; call DefaultOptions and override only the
+// fields the client provided. Names are validated strictly (no silent
+// mutation): a hard, early error is clearer than a scaffold that fails
+// halfway through generation on a machine that cannot be debugged.
+type Options struct {
+	BaseName           string
+	PackageName        string
+	BuildTool          string // maven | gradle
+	AuthenticationType string // jwt
+}
+
+// DefaultOptions is the documented neutral application identity: it carries
+// no client domain (no invented packages or business entities), just a sane
+// scaffold the client may override per request.
+func DefaultOptions() Options {
+	return Options{
+		BaseName:           "UmlArchitect",
+		PackageName:        "com.umlarchitect",
+		BuildTool:          "maven",
+		AuthenticationType: "jwt",
+	}
+}
+
+// ValidateOptions returns clear, actionable error strings for invalid
+// application configuration. An empty slice means valid. Base names follow
+// JHipster's rule (alphanumeric, not ending in the suffix JHipster appends to
+// the application class); package segments must be legal Java identifiers
+// that are not reserved words.
+func ValidateOptions(o Options) []string {
+	var errs []string
+	base := strings.TrimSpace(o.BaseName)
+	if base == "" {
+		errs = append(errs, "baseName is required")
+	} else {
+		for _, r := range base {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+				errs = append(errs, "baseName must be alphanumeric (got "+strconv.Quote(o.BaseName)+")")
+				break
+			}
+		}
+		if len(errs) == 0 && base[0] >= '0' && base[0] <= '9' {
+			errs = append(errs, "baseName must not start with a digit (got "+strconv.Quote(o.BaseName)+")")
+		}
+		if len(errs) == 0 && strings.HasSuffix(base, "App") {
+			errs = append(errs, "baseName must not end with \"App\" (JHipster appends it to the application class; got "+strconv.Quote(o.BaseName)+")")
+		}
+	}
+	pkg := strings.TrimSpace(o.PackageName)
+	switch {
+	case pkg == "":
+		errs = append(errs, "packageName is required")
+	case strings.HasPrefix(pkg, ".") || strings.HasSuffix(pkg, ".") || strings.Contains(pkg, ".."):
+		errs = append(errs, "packageName must be a dot-separated list of Java identifiers (got "+strconv.Quote(o.PackageName)+")")
+	default:
+		for _, seg := range strings.Split(pkg, ".") {
+			if !validJavaIdentifier(seg) {
+				errs = append(errs, "packageName segment "+strconv.Quote(seg)+" is not a legal Java identifier (got "+strconv.Quote(o.PackageName)+")")
+				break
+			}
+		}
+	}
+	switch o.BuildTool {
+	case "maven", "gradle":
+	default:
+		errs = append(errs, "buildTool must be \"maven\" or \"gradle\" (got "+strconv.Quote(o.BuildTool)+")")
+	}
+	switch o.AuthenticationType {
+	case "jwt":
+	default:
+		errs = append(errs, "authenticationType must be \"jwt\" (got "+strconv.Quote(o.AuthenticationType)+")")
+	}
+	return errs
+}
+
+// validJavaIdentifier reports whether s is a legal, non-reserved Java
+// identifier.
+func validJavaIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	if r, _ := utf8.DecodeRuneInString(s); !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '_' || r == '$') {
+		return false
+	}
+	for _, r := range s[1:] {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '$') {
+			return false
+		}
+	}
+	_, reserved := javaReserved[s]
+	return !reserved
+}
+
 // javaReserved is the JLS keyword/literal set plus "_" (reserved since Java 9).
 // Comparison is exact: "Class" is legal Java, only "class" is rejected.
 var javaReserved = map[string]struct{}{
@@ -277,6 +370,11 @@ func Export(doc domain.DiagramDocument) (string, Report) {
 			Location: "class " + entity.name,
 			Detail:   layoutDetail(class),
 		})
+		if class.IsAssociationClass != nil && *class.IsAssociationClass {
+			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+				"class %q is an association class (attached relationship %s); emitted as a plain JPA entity with explicit relationships (JHipster has no association-class construct)",
+				entity.name, attachedRelationshipRef(class)))
+		}
 		if class.PackageName != nil && strings.TrimSpace(*class.PackageName) != "" {
 			rep.Dropped = append(rep.Dropped, Dropped{
 				Kind:     "package",
@@ -452,4 +550,58 @@ func renderJDL(diagramName string, entities []entityDef, relationships []string)
 		b.WriteString("}\n")
 	}
 	return b.String()
+}
+
+// attachedRelationshipRef renders the attachment target for the
+// association-class warning, or "(none)" when no relationship is attached.
+func attachedRelationshipRef(class domain.UmlClass) string {
+	if class.AttachedRelationshipID != nil && strings.TrimSpace(*class.AttachedRelationshipID) != "" {
+		return *class.AttachedRelationshipID
+	}
+	return "(none)"
+}
+
+// renderApplicationBlock emits the JDL application block that scaffolds the
+// backend-only monolith app with the pinned provider, database, pinned build
+// tool, and JWT authentication. The entities list must name every entity the
+// JDL declares: JHipster 9 only imports entities listed inside the application
+// block ("entities Alpha, Beta"), so keeping it in the block means one
+// `jhipster jdl model.jdl` call scaffolds the app AND its entities.
+//
+// The key set is intentionally stable and minimal: every key here is accepted
+// by the pinned generator-jhipster release this package targets. Values JHipster
+// can infer safely are left to its defaults. baseName and packageName are
+// unquoted in the JDL grammar (quoted values are a parse error in v9).
+func renderApplicationBlock(o Options, entities []string) string {
+	var b strings.Builder
+	b.WriteString("application {\n  config {\n")
+	fmt.Fprintf(&b, "    baseName %s\n", o.BaseName)
+	b.WriteString("    applicationType monolith\n")
+	fmt.Fprintf(&b, "    packageName %s\n", o.PackageName)
+	fmt.Fprintf(&b, "    authenticationType %s\n", o.AuthenticationType)
+	fmt.Fprintf(&b, "    buildTool %s\n", o.BuildTool)
+	b.WriteString("    databaseType sql\n")
+	b.WriteString("    prodDatabaseType postgresql\n")
+	b.WriteString("    devDatabaseType postgresql\n")
+	b.WriteString("    skipClient true\n")
+	b.WriteString("  }\n")
+	if len(entities) > 0 {
+		fmt.Fprintf(&b, "  entities %s\n", strings.Join(entities, ", "))
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// ExportArtifact converts doc into a standalone JHipster backend scaffold:
+// the application block (options-pinned, backend-only, with the entity list)
+// followed by the same entities, relationships, and enums Export produces.
+// The Report is returned so the caller can surface warnings and skipped
+// constructs in the artifact manifest.
+// Invalid options return a clear error and no JDL.
+func ExportArtifact(doc domain.DiagramDocument, o Options) (string, Report, error) {
+	if errs := ValidateOptions(o); len(errs) > 0 {
+		return "", Report{}, fmt.Errorf("invalid JHipster application options: %s", strings.Join(errs, "; "))
+	}
+	jdl, rep := Export(doc)
+	return renderApplicationBlock(o, rep.Entities) + "\n" + jdl, rep, nil
 }
