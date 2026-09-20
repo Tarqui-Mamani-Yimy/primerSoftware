@@ -92,4 +92,14 @@ Regression caught by the e2e and fixed (worth recording):
 
 - T-1..T-9 done (task active since 2026-09-20 after `real-jhipster-backend-generation.md`, closed, commits 08283d9 / 7fcddc6 / 9c72833). JDL refactor (build model + association links + app options) and sqlgen + jhipster provisioning implemented; focused e2e against the real generator green. Remaining: work-unit commits (WU-1 jdlgen / WU-2 sqlgen / WU-3 jhipster + e2e), user-side full build/test, and the Spanish close report with DB commands.
 - **Verification so far (agent-run, focused):** `go test ./internal/... -count=1` → 230 passed (incl. 68 jdlgen, 6 sqlgen, 10 jhipster + 1 env-gated e2e); `gofmt -l` clean on touched packages; `go vet` clean. Full build/CI and `docker compose up -d` + boot are user-run checks.
-- **Close commands for the user (final report basis):** unzip the artifact → `docker compose up -d` (first boot runs database/<slug>.sql) → `./mvnw` (dev) or `./mvnw -Pprod`; reset with `docker compose down -v` (re-runs init SQL on next up). Credentials: `admin`/`admin`, `user`/`user`.
+- **Close commands for the user (final report basis):** unzip the artifact → `cd <baseName>` → `docker compose up -d` (first boot runs database/<slug>.sql) → `./mvnw` (dev) or `./mvnw -Pprod`; reset with `docker compose down -v` (re-runs init SQL on next up). Credentials: `admin`/`admin`, `user`/`user`.
+
+## Re-correction pass (2026-09-20)
+
+Re-verified against the current tree as source of truth. Three defects found and fixed:
+
+1. **ManyToMany autorreferenciales sin join table** — `sqlgen.RenderSQL` skipped self-associations (`Src == Dst`), emitting only a comment. JHipster 9.4.0 requires a real join table for `ManyToMany Order{orders} to Order{orders}`. Removed the skip; the join table is now emitted with the same shape as any other ManyToMany (`rel_order__orders`, composite PK, two FKs to the same table). Test `TestRenderSQLStructure` extended with the self-association assertions.
+
+2. **Comandos de manifest sin `cd` al ZIP root** — The ZIP root contains a single `<baseName>/` directory, but `runCommands` returned `docker compose up -d` directly, so the user would land in the wrong directory. Added `cd <baseName>` as the first command (both maven and gradle). Updated `TestRunCommandsPerBuildTool` and the manifest assertion in `TestGenerateProducesZipWithManifest`.
+
+3. **Reset bind mount postgres_data documentado** — The compose file uses a bind mount (`./database/postgres_data`), not a named volume. `docker compose down -v` removes the local directory and re-runs the init SQL on the next `up`. The compose comment already documented this; the task doc now records the exact close/reset commands.
