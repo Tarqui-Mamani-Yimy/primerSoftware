@@ -1,6 +1,13 @@
-// Command gobackend serves the AI UML Architect API (GOBE-02): PostgreSQL
-// persistence with embedded migrations, opaque-token auth, and the full
-// /api/v1 diagram/versioning contract.
+// Command gobackend serves the AI UML Architect API: PostgreSQL persistence
+// with embedded migrations, opaque-token auth, the /api/v1 diagram/versioning
+// REST contract, and the /api/v1/projects/{projectId}/diagrams/{id}/ws
+// WebSocket presence room built on top of gorilla/websocket.
+//
+// Routing precedence: real-time tickets and WS upgrades share the SAME
+// single membership gate the REST endpoints use, so a leaked token or
+// a tampered ticket cannot grant presence to a non-member. The
+// realtime hub re-evaluates the membership table on every Join so a
+// revocation takes effect on the next reconnect.
 package main
 
 import (
@@ -9,16 +16,28 @@ import (
 	"net/http"
 
 	"github.com/ai-uml-architect/gobackend/internal/config"
+	"github.com/ai-uml-architect/gobackend/internal/domain"
 	"github.com/ai-uml-architect/gobackend/internal/httpapi"
 	"github.com/ai-uml-architect/gobackend/internal/migrate"
+	"github.com/ai-uml-architect/gobackend/internal/realtime"
 	"github.com/ai-uml-architect/gobackend/internal/service"
 	"github.com/ai-uml-architect/gobackend/internal/store"
 	"github.com/jackc/pgx/v5"
 )
 
+// hubAdapter binds *realtime.Hub to service.DiagramPresenceBroadcaster so
+// the service can stay decoupled from the realtime package while main
+// wires both together.
+type hubAdapter struct{ hub *realtime.Hub }
+
+func (h hubAdapter) BroadcastDiagramChanged(projectID, diagramID string, evt domain.DiagramChangedEvent) {
+	h.hub.BroadcastDiagramChanged(projectID, diagramID, evt)
+}
+
 func main() {
 	cfg := config.Load()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	databaseURL := cfg.EffectiveDatabaseURL()
 	conn, err := pgx.Connect(ctx, databaseURL)
@@ -35,7 +54,15 @@ func main() {
 	}
 	defer pool.Close()
 
-	srv := httpapi.NewServer(service.New(store.NewPostgres(pool)), cfg.CORSAllowedOrigin)
+	st := store.NewPostgres(pool)
+	svc := service.New(st)
+	hub := httpapi.NewHub(svc)
+	svc.AttachBroadcaster(hubAdapter{hub: hub})
+	hub.Run(ctx)
+	defer hub.Close()
+
+	tickets := realtime.NewTicketSigner([]byte(cfg.RealtimeTicketSecret), nil)
+	srv := httpapi.NewServer(svc, cfg.CORSAllowedOrigin, hub, tickets)
 	log.Printf("gobackend: listening on :%s", cfg.ServerPort)
 	log.Fatal(http.ListenAndServe(":"+cfg.ServerPort, srv.Handler()))
 }

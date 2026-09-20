@@ -1,4 +1,9 @@
 // In-memory Store for hermetic unit tests (no database required).
+//
+// The memory store mirrors the Postgres store's optimistic-concurrency
+// contract so service-level tests reproduce the same 409 surface that
+// production code does. The mutex holdings are kept short; each public
+// method locks once.
 
 package store
 
@@ -74,6 +79,15 @@ func (m *MemoryStore) SeedMember(projectID, userID, role string) {
 	m.memberships[projectID+"\x00"+userID] = role
 }
 
+// SeedDiagramWithReview primes the diagram row with a known review_number
+// baseline (default 0) so optimistic-concurrency tests can target predictable
+// numbers rather than chasing bumped values.
+func (m *MemoryStore) SeedDiagramWithReview(d DiagramRecord) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.diagrams[d.ID] = d
+}
+
 func (m *MemoryStore) FindUserByEmail(_ context.Context, email string) (User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -108,7 +122,7 @@ func (m *MemoryStore) AssignedProjects(_ context.Context, userID string) ([]Assi
 	var out []AssignedProject
 	for key, role := range m.memberships {
 		parts := strings.SplitN(key, "\x00", 2)
-		if parts[1] != userID {
+		if len(parts) != 2 || parts[1] != userID {
 			continue
 		}
 		p, ok := m.projects[parts[0]]
@@ -195,54 +209,111 @@ func (m *MemoryStore) JoinProject(_ context.Context, projectID, userID string) (
 	}, nil
 }
 
-// SaveWorkingDocument mirrors the Postgres implementation: it upserts the
-// diagrams row without writing to diagram_versions, since autosave must not
-// pollute the explicit-checkpoint history.
-func (m *MemoryStore) SaveWorkingDocument(_ context.Context, d DiagramRecord) error {
+// SaveDocument mirrors the Postgres CAS contract. A nil expectedReview is
+// accepted as "create": the row is seeded at review_number = 1. A non-nil
+// baseline that does not match the row's current review_number produces
+// ErrReviewMismatch carrying the row's current value; the row is left intact
+// and the bumped value is never returned.
+func (m *MemoryStore) SaveDocument(_ context.Context, d DiagramRecord, expectedReview *int64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d.UpdatedAt.IsZero() {
 		d.UpdatedAt = time.Now().UTC()
 	}
+	if existing, ok := m.diagrams[d.ID]; ok {
+		if expectedReview != nil && existing.ReviewNumber != *expectedReview {
+			return existing.ReviewNumber, ErrReviewMismatch{Current: existing.ReviewNumber}
+		}
+		// preserve created_by; do not let autosave re-stamp the diagram creator
+		if existing.CreatedBy != "" {
+			d.CreatedBy = existing.CreatedBy
+		}
+		d.ReviewNumber = existing.ReviewNumber + 1
+	} else if expectedReview == nil {
+		d.ReviewNumber = 1
+	} else {
+		return 0, ErrReviewMismatch{Current: 0}
+	}
 	m.diagrams[d.ID] = d
-	return nil
+	return d.ReviewNumber, nil
 }
 
-// AppendCheckpoint mirrors the Postgres implementation: it assigns
-// version_number = max+1, stamps CreatedBy with the actor (authorship), and
-// stores the optional Message verbatim.
-func (m *MemoryStore) AppendCheckpoint(_ context.Context, d DiagramRecord, message *string) (VersionRecord, error) {
+// AppendCheckpoint mirrors Postgres: assign version_number = max+1, stamp
+// CreatedBy with the actor (authorship), optionally store Message, and bump
+// diagrams.review_number atomically under the same lock so concurrent
+// checkpoints cannot both succeed without surfacing ErrReviewMismatch.
+func (m *MemoryStore) AppendCheckpoint(_ context.Context, d DiagramRecord, expectedReview *int64, message *string) (VersionRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	current, ok := m.diagrams[d.ID]
+	if !ok || current.ID == "" {
+		if expectedReview != nil {
+			return VersionRecord{}, ErrReviewMismatch{Current: 0}
+		}
+		// Synthesize a row when the service is appending to a brand-new
+		// diagram that hasn't been autosaved yet, matching the Postgres
+		// behaviour of letting the document live in diagram_versions in
+		// that case.
+		current = d
+		current.ReviewNumber = 1
+		if current.UpdatedAt.IsZero() {
+			current.UpdatedAt = time.Now().UTC()
+		}
+		m.diagrams[d.ID] = current
+	} else if expectedReview != nil && current.ReviewNumber != *expectedReview {
+		return VersionRecord{}, ErrReviewMismatch{Current: current.ReviewNumber}
+	}
+	nextReview := current.ReviewNumber + 1
+	current.ReviewNumber = nextReview
+	if d.CreatedBy != "" && current.CreatedBy == "" {
+		current.CreatedBy = d.CreatedBy
+	}
+	if d.Document != nil {
+		current.Document = append([]byte(nil), d.Document...)
+	}
+	if d.Name != "" {
+		current.Name = d.Name
+	}
+	if !d.UpdatedAt.IsZero() {
+		current.UpdatedAt = d.UpdatedAt
+	}
+	current.ReviewNumber = nextReview
+	m.diagrams[d.ID] = current
+
 	next := 1
 	for _, existing := range m.versions[d.ID] {
 		if existing.Number >= next {
 			next = existing.Number + 1
 		}
 	}
-	current, ok := m.diagrams[d.ID]
-	if !ok || current.ID == "" {
-		m.diagrams[d.ID] = d
-	} else if d.CreatedBy != "" && current.CreatedBy == "" {
-		current.CreatedBy = d.CreatedBy
-		m.diagrams[d.ID] = current
-	}
 	v := VersionRecord{
-		ID:        NewUUID(),
-		DiagramID: d.ID,
-		Number:    next,
-		Document:  append([]byte(nil), d.Document...),
-		CreatedBy: d.CreatedBy,
-		CreatedAt: time.Now().UTC(),
-		Message:   message,
+		ID:           NewUUID(),
+		DiagramID:    d.ID,
+		Number:       next,
+		ReviewNumber: nextReview,
+		Document:     append([]byte(nil), d.Document...),
+		CreatedBy:    d.CreatedBy,
+		CreatedAt:    time.Now().UTC(),
+		Message:      message,
 	}
 	m.versions[d.ID] = append(m.versions[d.ID], v)
 	return v, nil
 }
 
-// CurrentVersion mirrors Postgres: the highest version_number for a diagram
-// (0 when no checkpoint row exists yet). Tests use it to assert the Version
-// the service mirrors onto DiagramDocument after save/restore.
+// CurrentReview returns the diagrams row's current review_number (0 when no
+// row exists yet).
+func (m *MemoryStore) CurrentReview(_ context.Context, diagramID string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.diagrams[diagramID]
+	if !ok {
+		return 0, nil
+	}
+	return d.ReviewNumber, nil
+}
+
+// CurrentVersion returns the highest version_number for a diagram (0 when no
+// checkpoint row exists yet).
 func (m *MemoryStore) CurrentVersion(_ context.Context, diagramID string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

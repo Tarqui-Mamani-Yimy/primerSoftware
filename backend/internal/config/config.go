@@ -31,8 +31,9 @@ type Config struct {
 	DatabaseHost      string
 	DatabasePort      string
 	DatabaseName      string
-	ServerPort        string
-	CORSAllowedOrigin string
+	ServerPort           string
+	CORSAllowedOrigin    string
+	RealtimeTicketSecret string
 }
 
 // Load reads the environment, applying the documented defaults.
@@ -45,8 +46,9 @@ func Load() Config {
 		DatabaseHost:      firstNonEmpty(os.Getenv("DATABASE_HOST"), "localhost"),
 		DatabasePort:      firstNonEmpty(os.Getenv("DATABASE_PORT"), "5432"),
 		DatabaseName:      firstNonEmpty(os.Getenv("DATABASE_NAME"), "postgres"),
-		ServerPort:        firstNonEmpty(os.Getenv("SERVER_PORT"), "8080"),
-		CORSAllowedOrigin: firstNonEmpty(os.Getenv("CORS_ALLOWED_ORIGIN"), os.Getenv("FRONTEND_URL"), "http://localhost:3000"),
+		ServerPort:           firstNonEmpty(os.Getenv("SERVER_PORT"), "8080"),
+		CORSAllowedOrigin:    firstNonEmpty(os.Getenv("CORS_ALLOWED_ORIGIN"), os.Getenv("FRONTEND_URL"), "http://localhost:3000"),
+		RealtimeTicketSecret: firstNonEmpty(os.Getenv("REALTIME_TICKET_SECRET"), "dev-realtime-ticket-secret-do-not-use-in-prod"),
 	}
 }
 
