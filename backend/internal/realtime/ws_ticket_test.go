@@ -109,19 +109,18 @@ func TestTicketTripleMismatchRejected(t *testing.T) {
 	srv := httptest.NewServer(hub.Upgrade(bearerDenied))
 	defer srv.Close()
 
-	// Ticket bound to diagram B, used on diagram A's path.
+	// Ticket bound to diagram B, used on diagram A's path: rejected before
+	// the HTTP upgrade, so no 101 handshake ever happens for the wrong room.
 	ticket, err := signer.Issue(projectID, diagramB, "alice", time.Minute)
 	if err != nil {
 		t.Fatalf("issue ticket: %v", err)
 	}
-	ws, _, err := dialTicket(t, srv.URL, projectID, diagramA, ticket, nil)
-	if err != nil {
-		t.Fatalf("HTTP upgrade succeeds before the triple check: %v", err)
+	_, resp, err := dialTicket(t, srv.URL, projectID, diagramA, ticket, nil)
+	if err == nil {
+		t.Fatalf("triple-mismatched ticket must not upgrade")
 	}
-	defer ws.Close()
-	_ = ws.SetReadDeadline(time.Now().Add(2 * time.Second))
-	if _, _, err := ws.ReadMessage(); err == nil {
-		t.Fatalf("triple-mismatched ticket must be closed with policy violation")
+	if resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("triple-mismatched ticket must return 403, got %v", resp)
 	}
 }
 

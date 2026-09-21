@@ -102,6 +102,17 @@ func Handle(h *Hub, auth AuthFunc) http.HandlerFunc {
 			http.Error(w, "membership required", http.StatusUnauthorized)
 			return
 		}
+		// If the auth path was a ticket, verify the (projectID, diagramID,
+		// userID) triple from the already-parsed claims matches the path
+		// BEFORE the HTTP upgrade: a ticket for room A must never produce
+		// a 101 on room B followed by a close. No re-parse here: the
+		// ticket is one-shot and already consumed.
+		if source == "ticket" {
+			if ticket.ProjectID != projectID || ticket.DiagramID != diagramID || ticket.UserID != userID {
+				http.Error(w, "ticket mismatch", http.StatusForbidden)
+				return
+			}
+		}
 		displayName := h.resolver.DisplayName(userID)
 		if displayName == "" {
 			displayName = "anonymous"
@@ -114,16 +125,6 @@ func Handle(h *Hub, auth AuthFunc) http.HandlerFunc {
 		conn, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			return
-		}
-		// If the auth path was a ticket, double-check the (projectID,
-		// diagramID, userID) triple from the already-parsed claims matches
-		// the path; a ticket for room A cannot open a connection to room B.
-		// No re-parse here: the ticket is one-shot and already consumed.
-		if source == "ticket" {
-			if ticket.ProjectID != projectID || ticket.DiagramID != diagramID || ticket.UserID != userID {
-				writeClose(conn, websocket.ClosePolicyViolation, "ticket mismatch")
-				return
-			}
 		}
 		client := &Client{
 			conn:        conn,
