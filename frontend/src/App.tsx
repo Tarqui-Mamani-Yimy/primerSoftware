@@ -189,15 +189,36 @@ export default function App() {
           if (retryError instanceof ApiError && retryError.status === 409) {
             setPersistenceStatus('conflict');
             setConflictSnapshot(retryError.payload?.current ?? null);
+          } else if (
+            pendingSnapshotRef.current &&
+            pendingSnapshotRef.current !== snapshot &&
+            activeProjectRef.current?.id === project.id &&
+            diagramIdRef.current === id
+          ) {
+            // Newer edits arrived during the failed PUTs and their timer may
+            // already have been consumed by the in-flight guard: re-arm the
+            // flush for the NEW pending snapshot instead of stranding it
+            // dirty. The re-armed flush follows the normal rules, so a
+            // repeated failure with the same pending snapshot still lands
+            // on 'error' instead of looping.
+            scheduleSave();
           } else {
             setPersistenceStatus('error');
           }
         }
       } else if (sequence === saveSequenceRef.current) {
-        // A newer snapshot is already queued (or the diagram changed): never
-        // paint a generic error over work that still has a flush pending.
-        if (!pendingSnapshotRef.current || activeProjectRef.current?.id !== project.id || diagramIdRef.current !== id) {
+        if (
+          !pendingSnapshotRef.current ||
+          activeProjectRef.current?.id !== project.id ||
+          diagramIdRef.current !== id
+        ) {
           setPersistenceStatus('error');
+        } else {
+          // A newer snapshot is queued but its timer may already have been
+          // consumed by the in-flight guard above: re-arm the flush
+          // explicitly so the edit is never stranded dirty. Same loop
+          // bound as above — one extra attempt per new snapshot.
+          scheduleSave();
         }
       }
     } finally {
@@ -261,8 +282,10 @@ export default function App() {
   // socket callbacks from a previous diagram/project are dropped instead
   // of being applied to the wrong document.
   const setupRealtime = useCallback(async (project: AssignedProject, id: string) => {
+    // NOTE: reconnectAttemptsRef is deliberately NOT reset here. The cap of
+    // 5 must be real across reconnect loops; it resets only on a stable
+    // connect (snapshot received) or on explicit open/change (clearSaveState).
     const generation = ++realtimeGenRef.current;
-    reconnectAttemptsRef.current = 0;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = undefined;
@@ -287,6 +310,9 @@ export default function App() {
     const client = new RealtimeClient(buildRealtimeWsUrl(project.id, id, ticket), {
       onSnapshot: (snapshot) => {
         if (!stillCurrent()) return;
+        // Stable connect proof: a snapshot for the current document resets
+        // the reconnect budget.
+        reconnectAttemptsRef.current = 0;
         setPresenceMembers(snapshot.members ?? []);
         // Adopt the snapshot baseline when it is newer and the editor has
         // no unsaved work; a dirty editor keeps its baseline and resolves
@@ -296,6 +322,7 @@ export default function App() {
         }
       },
       onJoin: (delta) => {
+        if (!stillCurrent()) return;
         setPresenceMembers((current) => {
           if (current.some((m) => m.userId === delta.member.userId)) {
             return current.map((m) => (m.userId === delta.member.userId ? delta.member : m));
@@ -304,6 +331,7 @@ export default function App() {
         });
       },
       onLeave: (delta) => {
+        if (!stillCurrent()) return;
         setPresenceMembers((current) => current.filter((m) => m.userId !== delta.member.userId));
       },
       onChanged: (event) => {

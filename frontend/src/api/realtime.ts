@@ -90,6 +90,16 @@ export class RealtimeClient {
     const socket = new WebSocket(this.url);
     this.socket = socket;
     socket.onopen = () => {
+      // Disconnected while the handshake was in flight: never start the
+      // heartbeat on a dead socket, just close it.
+      if (this.closed) {
+        try {
+          socket.close();
+        } catch {
+          // Best effort only.
+        }
+        return;
+      }
       this.heartbeatTimer = setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ type: 'presence.heartbeat' }));
@@ -97,6 +107,9 @@ export class RealtimeClient {
       }, HEARTBEAT_INTERVAL_MS);
     };
     socket.onmessage = (event) => {
+      // Drop events queued before disconnect() so stale sockets never
+      // drive callbacks on the wrong document.
+      if (this.closed) return;
       let envelope: RealtimeEnvelope;
       try {
         envelope = JSON.parse(String(event.data)) as RealtimeEnvelope;
