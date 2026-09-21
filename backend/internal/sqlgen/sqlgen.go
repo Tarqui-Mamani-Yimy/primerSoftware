@@ -217,6 +217,11 @@ func RenderSQL(m jdlgen.Model) string {
 				ownerTable = table
 				col = snake(r.DstField) + "_id"
 				target = snake(r.Src)
+			default:
+				continue
+			}
+			if ownerTable == "" || col == "" {
+				continue
 			}
 			unique := ""
 			if isOneToOne {

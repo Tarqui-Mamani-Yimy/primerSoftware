@@ -92,7 +92,7 @@ Regression caught by the e2e and fixed (worth recording):
 
 - T-1..T-9 done (task active since 2026-09-20 after `real-jhipster-backend-generation.md`, closed, commits 08283d9 / 7fcddc6 / 9c72833). JDL refactor (build model + association links + app options) and sqlgen + jhipster provisioning implemented; focused e2e against the real generator green. Remaining: work-unit commits (WU-1 jdlgen / WU-2 sqlgen / WU-3 jhipster + e2e), user-side full build/test, and the Spanish close report with DB commands.
 - **Verification so far (agent-run, focused):** `go test ./internal/... -count=1` → 230 passed (incl. 68 jdlgen, 6 sqlgen, 10 jhipster + 1 env-gated e2e); `gofmt -l` clean on touched packages; `go vet` clean. Full build/CI and `docker compose up -d` + boot are user-run checks.
-- **Close commands for the user (final report basis):** unzip the artifact → `cd <baseName>` → `docker compose up -d` (first boot runs database/<slug>.sql) → `./mvnw` (dev) or `./mvnw -Pprod`; reset with `docker compose down -v` (re-runs init SQL on next up). Credentials: `admin`/`admin`, `user`/`user`.
+- **Close commands for the user (final report basis):** unzip the artifact → `cd <baseName>` → `docker compose up -d` (first boot runs database/<slug>.sql) → `./mvnw` (dev) or `./mvnw -Pprod`; reset with `docker compose down` + `rm -rf database/postgres_data` + `docker compose up -d` (bind mount: `down -v` does NOT remove the host dir). Credentials: `admin`/`admin`, `user`/`user`.
 
 ## Re-correction pass (2026-09-20)
 
@@ -102,4 +102,14 @@ Re-verified against the current tree as source of truth. Three defects found and
 
 2. **Comandos de manifest sin `cd` al ZIP root** — The ZIP root contains a single `<baseName>/` directory, but `runCommands` returned `docker compose up -d` directly, so the user would land in the wrong directory. Added `cd <baseName>` as the first command (both maven and gradle). Updated `TestRunCommandsPerBuildTool` and the manifest assertion in `TestGenerateProducesZipWithManifest`.
 
-3. **Reset bind mount postgres_data documentado** — The compose file uses a bind mount (`./database/postgres_data`), not a named volume. `docker compose down -v` removes the local directory and re-runs the init SQL on the next `up`. The compose comment already documented this; the task doc now records the exact close/reset commands.
+3. **Reset bind mount postgres_data documentado (SUPERSEDED — ver pasada 2)** — La afirmación anterior era incorrecta: `docker compose down -v` NO elimina bind mounts del host. Ver la corrección en la pasada 2.
+
+## Re-correction pass 2 (revisión independiente)
+
+Dos bloqueantes rechazados por la revisión, corregidos contra el árbol actual:
+
+1. **OneToMany: columna FK y ALTER TABLE en la MISMA tabla** — El bucle de `RenderSQL` declaraba la columna en la tabla Src pero registraba la FK en la tabla Dst (p. ej. columna en `enrollment` con constraint en `student`). Ahora la regla de propiedad es explícita y coincide con la JPA generada: ManyToOne/OneToOne → la columna vive en Src; OneToMany → la columna vive en Dst (Src solo tiene la colección). Para `Enrollment{students} -> Student{enrollment}`, `student` declara `enrollment_id` y la FK `fk_student__enrollment_id` también vive en `student`. Además se agregó `default: continue` para que las ManyToMany no emitan columnas/FKs vacías (`ALTER TABLE  ADD CONSTRAINT fk___...`). Test semántico nuevo `TestRenderSQLFKOwnershipMatchesColumnTable`: parsea el SQL renderizado y falla si alguna `ALTER TABLE X ... FOREIGN KEY (col)` referencia una columna no declarada en `CREATE TABLE X`.
+
+2. **Reset con bind mount: borrado explícito del directorio host** — Se mantiene `./database/postgres_data` como bind mount. El comentario del compose generado ya NO afirma que `docker compose down -v` lo borra; ahora documenta el reset correcto y seguro:
+   `docker compose down` → `rm -rf database/postgres_data` → `docker compose up -d`.
+   `TestRenderCompose` exige la presencia de `rm -rf database/postgres_data` en el compose generado (contrato testeado).
