@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { RelationshipType, Stereotype, UMLClassNode, UMLRelationship } from '../../types';
 import { DiagramSummary, DiagramVersion } from '../../api/diagramApi';
+import { PresenceMember } from '../../api/realtime';
 import { Inspector } from './Inspector';
 import { RelationshipInspector } from './RelationshipInspector';
 import { Toolbox } from './Toolbox';
@@ -37,6 +38,8 @@ interface CanvasViewProps {
   onRestoreVersion: (versionNumber: number) => void;
   onCreateCheckpoint: () => void;
   persistenceLabel: string;
+  presenceMembers?: PresenceMember[];
+  presenceLabel?: string;
 }
 
 type Point = { x: number; y: number };
@@ -203,6 +206,11 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
         </div>
         {props.diagramId && <input aria-label="Diagram name" value={props.diagramName} onChange={(event) => props.onRenameDiagram(event.target.value)} className="w-32 bg-transparent text-[#bbcabf] outline-none focus:text-white" placeholder="Diagram name" />}
         <span className={props.persistenceStatus === 'error' ? 'text-[#ffb4ab]' : props.persistenceStatus === 'saved' ? 'text-[#4edea3]' : 'text-[#bbcabf]'}>{props.isDocumentLoading ? es.canvas.loading : props.persistenceLabel}</span>
+        {props.diagramId && props.presenceLabel && (
+          <span role="status" aria-live="polite" title={(props.presenceMembers ?? []).map((m) => m.displayName).join(', ')} className="border-l border-[#3c4a42] pl-2 text-[#4cd7f6]">
+            {props.presenceLabel}
+          </span>
+        )}
         {props.diagramId && <button type="button" onClick={props.onCreateCheckpoint} className="border-l border-[#3c4a42] pl-2 hover:text-[#4edea3]" aria-label={es.canvas.createCheckpoint} title={es.canvas.createCheckpoint}>{es.canvas.createCheckpoint}</button>}
         {props.diagramId && <div className="relative border-l border-[#3c4a42] pl-2">
           <button type="button" onClick={() => { setShowVersions((current) => !current); if (!showVersions) props.onLoadVersions(); }} className="hover:text-[#4edea3]" aria-label={es.canvas.history}>{es.canvas.history}</button>

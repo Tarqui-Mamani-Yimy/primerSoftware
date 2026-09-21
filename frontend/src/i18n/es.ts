@@ -134,6 +134,11 @@ export const es = {
     persistenceOnline: 'Sincronizado',
     persistenceConflict: 'Versión desactualizada — recargar para no perder cambios',
     persistenceOffline: 'Sin conexión con el servidor',
+    presenceConnecting: 'Conectando presencia…',
+    presenceUnavailable: 'Presencia no disponible',
+    presenceOnline: (count: number) => count === 1 ? '1 colaborador en línea' : `${count} colaboradores en línea`,
+    remoteChangeApplied: 'Otro colaborador editó el diagrama — vista actualizada.',
+    remoteChangeConflict: 'Otro colaborador editó el diagrama mientras tenías cambios sin guardar. Revisá y decidí cómo continuar.',
   },
   export: {
     export: 'Exportar',

@@ -105,6 +105,21 @@ export interface BackendArtifactResult {
   filename: string;
 }
 
+/** Base URL of the Go API (without trailing slash). Exported so the
+ * realtime client can derive the WebSocket URL from the same source. */
+export function getApiBaseUrl(): string {
+  return API_BASE_URL;
+}
+
+/** Short-lived signed ticket that opens the diagram WebSocket without a
+ * custom Authorization header: POST .../realtime-tickets (bearer-gated),
+ * then GET .../ws?ticket=... The ticket is one-shot and bound to the
+ * project/diagram/user triple. */
+export interface RealtimeTicket { ticket: string; expiresIn: number; }
+export const realtimeApi = {
+  ticket: (p: string, id: string) => request<RealtimeTicket>(`/projects/${p}/diagrams/${id}/realtime-tickets`, { method: 'POST' }),
+};
+
 /** The artifact endpoint generates the real Spring Boot/JPA backend on the
  * server (pinned generator-jhipster) and streams it as a zip. */
 export const artifactApi = {

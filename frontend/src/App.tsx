@@ -3,7 +3,8 @@ import { ActiveView, UMLClassNode, Stereotype, UMLRelationship } from './types';
 import { createDiagramDocument } from './diagram/document';
 import { downloadDiagramPng, downloadDiagramSvg } from './diagram/visualExport';
 import { downloadDiagramXmi } from './diagram/xmiExport';
-import { ApiError, artifactApi, authApi, diagramApi, projectApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion, UMLDiagramDocument } from './api/diagramApi';
+import { ApiError, artifactApi, authApi, diagramApi, projectApi, realtimeApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion, UMLDiagramDocument } from './api/diagramApi';
+import { RealtimeClient, buildRealtimeWsUrl, PresenceMember } from './api/realtime';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { CanvasView } from './components/UmlCanvas/CanvasView';
@@ -37,12 +38,18 @@ export default function App() {
   const [isDocumentLoading, setIsDocumentLoading] = useState(false);
   const [checkpointOpen, setCheckpointOpen] = useState(false);
   const [conflictSnapshot, setConflictSnapshot] = useState<UMLDiagramDocument | null>(null);
+  const [userId, setUserId] = useState('');
+  const [presenceMembers, setPresenceMembers] = useState<PresenceMember[]>([]);
+  const [realtimeState, setRealtimeState] = useState<'idle' | 'connecting' | 'live' | 'unavailable'>('idle');
+  const [remoteNotice, setRemoteNotice] = useState<string | null>(null);
   const classesRef = useRef(classes);
   const relationshipsRef = useRef(relationships);
   const diagramNameRef = useRef(diagramName);
   const diagramIdRef = useRef(diagramId);
   const diagramVersionRef = useRef(diagramVersion);
   const diagramReviewRef = useRef(diagramReview);
+  const userIdRef = useRef(userId);
+  const realtimeClientRef = useRef<RealtimeClient | null>(null);
   const activeProjectRef = useRef(activeProject);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
   const saveSequenceRef = useRef(0);
@@ -59,6 +66,7 @@ export default function App() {
   useEffect(() => { diagramIdRef.current = diagramId; }, [diagramId]);
   useEffect(() => { diagramVersionRef.current = diagramVersion; }, [diagramVersion]);
   useEffect(() => { diagramReviewRef.current = diagramReview; }, [diagramReview]);
+  useEffect(() => { userIdRef.current = userId; }, [userId]);
   useEffect(() => { activeProjectRef.current = activeProject; }, [activeProject]);
 
   const refreshDiagrams = async (projectId: string) => {
@@ -168,6 +176,7 @@ export default function App() {
 
   const scheduleSave = useCallback((nextClasses?: UMLClassNode[], nextRelationships?: UMLRelationship[], nextName?: string) => {
     if (!activeProjectRef.current || !diagramIdRef.current) return;
+    setRemoteNotice(null);
     const snapshot = {
       classes: nextClasses ?? classesRef.current,
       relationships: nextRelationships ?? relationshipsRef.current,
@@ -201,7 +210,82 @@ export default function App() {
     inflightRef.current = false;
     dirtyRef.current = false;
     pendingSnapshotRef.current = null;
+    realtimeClientRef.current?.disconnect();
+    realtimeClientRef.current = null;
+    setPresenceMembers([]);
+    setRealtimeState('idle');
+    setRemoteNotice(null);
   }, []);
+
+  // Authenticated realtime: fetch a one-shot ticket over REST, then open the
+  // diagram WebSocket. Presence is best-effort — a ticket/socket failure
+  // marks presence unavailable but never blocks editing or autosave.
+  const setupRealtime = useCallback(async (project: AssignedProject, id: string) => {
+    realtimeClientRef.current?.disconnect();
+    realtimeClientRef.current = null;
+    setPresenceMembers([]);
+    setRealtimeState('connecting');
+    let ticket: string;
+    try {
+      const issued = await realtimeApi.ticket(project.id, id);
+      ticket = issued.ticket;
+    } catch {
+      setRealtimeState('unavailable');
+      return;
+    }
+    const client = new RealtimeClient(buildRealtimeWsUrl(project.id, id, ticket), {
+      onSnapshot: (snapshot) => {
+        setPresenceMembers(snapshot.members ?? []);
+        // Adopt the snapshot baseline when it is newer and the editor has
+        // no unsaved work; a dirty editor keeps its baseline and resolves
+        // through the normal 409/conflict path.
+        if ((snapshot.reviewNumber ?? 0) > diagramReviewRef.current && !dirtyRef.current) {
+          applyDocument(snapshot.document);
+        }
+      },
+      onJoin: (delta) => {
+        setPresenceMembers((current) => {
+          if (current.some((m) => m.userId === delta.member.userId)) {
+            return current.map((m) => (m.userId === delta.member.userId ? delta.member : m));
+          }
+          return [...current, delta.member];
+        });
+      },
+      onLeave: (delta) => {
+        setPresenceMembers((current) => current.filter((m) => m.userId !== delta.member.userId));
+      },
+      onChanged: (event) => {
+        // The hub already skips the originator; ignore own echoes defensively.
+        if (!event || event.actorId === userIdRef.current) return;
+        const currentProject = activeProjectRef.current;
+        const currentId = diagramIdRef.current;
+        if (!currentProject || !currentId || currentId !== id) return;
+        if (dirtyRef.current) {
+          // Dirty editor: surface the server document as a conflict instead
+          // of overwriting unsaved work.
+          void diagramApi.get(currentProject.id, currentId).then((fresh) => {
+            if (diagramIdRef.current !== currentId) return;
+            setPersistenceStatus('conflict');
+            setConflictSnapshot(fresh);
+            setRemoteNotice(es.canvas.remoteChangeConflict);
+          }).catch(() => undefined);
+          return;
+        }
+        void diagramApi.get(currentProject.id, currentId).then((fresh) => {
+          if (diagramIdRef.current !== currentId || dirtyRef.current) return;
+          applyDocument(fresh);
+          setPersistenceStatus('saved');
+          setRemoteNotice(es.canvas.remoteChangeApplied);
+        }).catch(() => undefined);
+      },
+      onClose: () => {
+        if (realtimeClientRef.current === client) setRealtimeState('unavailable');
+      },
+    });
+    realtimeClientRef.current = client;
+    client.connect();
+    setRealtimeState('live');
+  }, [applyDocument]);
 
   // beforeunload / pagehide / visibilitychange are the three hooks React
   // unmount misses: a hard refresh or backgrounded tab kills the timer, so
@@ -252,6 +336,14 @@ export default function App() {
 
   useEffect(() => () => { void flushNow(); }, [flushNow]);
 
+  // Diagram-level realtime socket dies with the App shell: leaving to the
+  // project list already disconnects via clearSaveState; this covers reload
+  // and full unmount.
+  useEffect(() => () => {
+    realtimeClientRef.current?.disconnect();
+    realtimeClientRef.current = null;
+  }, []);
+
   const openDiagram = async (project: AssignedProject, id: string) => {
     clearSaveState();
     setIsDocumentLoading(true);
@@ -261,6 +353,7 @@ export default function App() {
       applyDocument(await diagramApi.get(project.id, id));
       setVersions([]);
       setPersistenceStatus('saved');
+      void setupRealtime(project, id);
     } catch {
       setPersistenceStatus('error');
     } finally {
@@ -622,8 +715,17 @@ export default function App() {
     }
   }, [persistenceStatus]);
 
+  const presenceLabel = useMemo(() => {
+    if (!diagramId) return undefined;
+    switch (realtimeState) {
+      case 'live': return es.canvas.presenceOnline(presenceMembers.length);
+      case 'connecting': return es.canvas.presenceConnecting;
+      default: return es.canvas.presenceUnavailable;
+    }
+  }, [diagramId, realtimeState, presenceMembers.length]);
+
   if (screen === 'login') {
-    return <LoginScreen onContinue={async (email, password) => { const login = await authApi.login(email, password); authApi.setToken(login.accessToken); setUserName(login.displayName); setProjects(await projectApi.list()); setScreen('projects'); }} />;
+    return <LoginScreen onContinue={async (email, password) => { const login = await authApi.login(email, password); authApi.setToken(login.accessToken); setUserName(login.displayName); setUserId(login.userId); setProjects(await projectApi.list()); setScreen('projects'); }} />;
   }
 
   if (screen === 'projects') {
@@ -674,6 +776,8 @@ export default function App() {
               versions={versions}
               persistenceStatus={persistenceStatus === 'conflict' ? 'error' : (persistenceStatus === 'offline' ? 'idle' : persistenceStatus)}
               persistenceLabel={persistenceLabel}
+              presenceMembers={presenceMembers}
+              presenceLabel={presenceLabel}
               isDocumentLoading={isDocumentLoading}
               onOpenDiagram={(id) => { if (activeProject) void openDiagram(activeProject, id); }}
               onCreateDiagram={() => { void createDiagram(); }}
@@ -682,6 +786,16 @@ export default function App() {
               onRestoreVersion={(versionNumber) => { void restoreVersion(versionNumber); }}
               onCreateCheckpoint={() => setCheckpointOpen(true)}
             />
+            {remoteNotice && !conflictSnapshot && (
+              <div role="status" className="fixed bottom-4 left-1/2 z-40 w-[36rem] -translate-x-1/2 border border-[#4cd7f6] bg-[#1c2028] p-3 font-mono text-xs text-[#dfe2ee] shadow-xl">
+                <p>{remoteNotice}</p>
+                <div className="mt-2 flex items-center justify-end">
+                  <button type="button" onClick={() => setRemoteNotice(null)} className="px-3 py-1 border border-[#4cd7f6] text-[#4cd7f6] hover:bg-[#4cd7f6] hover:text-[#1c2028] transition-colors uppercase font-bold">
+                    {es.canvas.close}
+                  </button>
+                </div>
+              </div>
+            )}
             {conflictSnapshot && (
               <ConflictBanner
                 conflicting={conflictSnapshot}
