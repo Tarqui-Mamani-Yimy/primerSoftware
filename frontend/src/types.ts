@@ -73,16 +73,24 @@ export interface UMLRelationship {
  * Portable document exchanged with the diagram API. Keep this independent of
  * JointJS: the renderer is an implementation detail, not the source of truth.
  *
- * `version` is the optimistic-concurrency baseline echoed by the server after
+ * `version` is the explicit-checkpoint counter echoed by the server after
  * every GET/PUT and after every explicit checkpoint creation. Clients include
- * it on their next PUT and POST /checkpoints call (and as the `If-Match`
+ * it on their next PUT and POST /checkpoints call (as the `If-Match`
  * header) so a stale write surfaces as 409 with the server's current
  * document, instead of overwriting another collaborator's checkpoint.
+ *
+ * `reviewNumber` is the monotonic per-diagram work counter the backend bumps
+ * on every successful autosave and checkpoint. Clients include it on their
+ * next PUT and POST /checkpoints call (as the `X-Diagram-Review` header) so
+ * a stale write surfaces as 409 carrying the live baseline. A zero or absent
+ * value is the legacy path: the backend falls back to its live baseline and
+ * never 409s, so new code must always send the last baseline it received.
  */
 export interface UMLDiagramDocument {
   schemaVersion: 1;
   id?: string;
   version: number;
+  reviewNumber: number;
   name: string;
   classes: UMLClassNode[];
   relationships: UMLRelationship[];

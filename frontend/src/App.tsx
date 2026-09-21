@@ -30,6 +30,7 @@ export default function App() {
   const [diagramId, setDiagramId] = useState<string | undefined>();
   const [diagramName, setDiagramName] = useState('');
   const [diagramVersion, setDiagramVersion] = useState(0);
+  const [diagramReview, setDiagramReview] = useState(0);
   const [diagrams, setDiagrams] = useState<DiagramSummary[]>([]);
   const [versions, setVersions] = useState<DiagramVersion[]>([]);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceState>('offline');
@@ -41,6 +42,7 @@ export default function App() {
   const diagramNameRef = useRef(diagramName);
   const diagramIdRef = useRef(diagramId);
   const diagramVersionRef = useRef(diagramVersion);
+  const diagramReviewRef = useRef(diagramReview);
   const activeProjectRef = useRef(activeProject);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
   const saveSequenceRef = useRef(0);
@@ -56,6 +58,7 @@ export default function App() {
   useEffect(() => { diagramNameRef.current = diagramName; }, [diagramName]);
   useEffect(() => { diagramIdRef.current = diagramId; }, [diagramId]);
   useEffect(() => { diagramVersionRef.current = diagramVersion; }, [diagramVersion]);
+  useEffect(() => { diagramReviewRef.current = diagramReview; }, [diagramReview]);
   useEffect(() => { activeProjectRef.current = activeProject; }, [activeProject]);
 
   const refreshDiagrams = async (projectId: string) => {
@@ -70,11 +73,13 @@ export default function App() {
     diagramNameRef.current = document.name;
     diagramIdRef.current = document.id;
     diagramVersionRef.current = document.version ?? 0;
+    diagramReviewRef.current = document.reviewNumber ?? 0;
     setClasses(document.classes);
     setRelationships(document.relationships);
     setDiagramName(document.name);
     setDiagramId(document.id);
     setDiagramVersion(document.version ?? 0);
+    setDiagramReview(document.reviewNumber ?? 0);
     setSelectedClassId(document.classes[0]?.id ?? '');
     setSelectedRelationshipId('');
     dirtyRef.current = false;
@@ -89,13 +94,15 @@ export default function App() {
     const project = activeProjectRef.current;
     const id = diagramIdRef.current;
     const version = diagramVersionRef.current;
+    const review = diagramReviewRef.current;
     if (!project || !id) return;
     if (inflightRef.current) return;
     inflightRef.current = true;
     const sequence = ++saveSequenceRef.current;
     setPersistenceStatus('saving');
-    const document = createDiagramDocument(snapshot.name.trim() || 'Diagrama sin título', snapshot.classes, snapshot.relationships, id, version);
+    const document = createDiagramDocument(snapshot.name.trim() || 'Diagrama sin título', snapshot.classes, snapshot.relationships, id, version, review);
     const baseline = diagramVersionRef.current;
+    const reviewBaseline = diagramReviewRef.current;
     try {
       const saved = await diagramApi.update(project.id, id, document);
       if (sequence === saveSequenceRef.current && activeProjectRef.current?.id === project.id && diagramIdRef.current === id) {
@@ -104,11 +111,13 @@ export default function App() {
         diagramNameRef.current = saved.name;
         diagramIdRef.current = saved.id;
         diagramVersionRef.current = saved.version ?? version;
+        diagramReviewRef.current = saved.reviewNumber ?? review;
         setClasses(saved.classes);
         setRelationships(saved.relationships);
         setDiagramName(saved.name);
         setDiagramId(saved.id);
         setDiagramVersion(saved.version ?? version);
+        setDiagramReview(saved.reviewNumber ?? review);
         dirtyRef.current = false;
         pendingSnapshotRef.current = null;
         setPersistenceStatus('saved');
@@ -133,12 +142,14 @@ export default function App() {
       // One bounded retry on transient failures: networks flake, the timer
       // was already cleared, and the document is still dirty. Any other
       // persistent failure surfaces as a banner the user can clear by hand.
-      if (sequence === saveSequenceRef.current && activeProjectRef.current?.id === project.id && diagramIdRef.current === id && baseline === diagramVersionRef.current) {
+      if (sequence === saveSequenceRef.current && activeProjectRef.current?.id === project.id && diagramIdRef.current === id && baseline === diagramVersionRef.current && reviewBaseline === diagramReviewRef.current) {
         try {
           const saved = await diagramApi.update(project.id, id, document);
           if (sequence === saveSequenceRef.current) {
             diagramVersionRef.current = saved.version ?? version;
+            diagramReviewRef.current = saved.reviewNumber ?? review;
             setDiagramVersion(saved.version ?? version);
+            setDiagramReview(saved.reviewNumber ?? review);
             dirtyRef.current = false;
             pendingSnapshotRef.current = null;
             setPersistenceStatus('saved');
@@ -202,6 +213,7 @@ export default function App() {
       const project = activeProjectRef.current;
       const id = diagramIdRef.current;
       const version = diagramVersionRef.current;
+      const review = diagramReviewRef.current;
       if (!project || !id || typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') {
         // Fall back to a best-effort async flush. Browsers will not await
         // this on real unload, but on visibility-change the next paint can.
@@ -212,6 +224,7 @@ export default function App() {
         schemaVersion: 1 as const,
         id,
         version,
+        reviewNumber: review,
         name: pendingSnapshotRef.current.name.trim() || 'Diagrama sin título',
         classes: pendingSnapshotRef.current.classes,
         relationships: pendingSnapshotRef.current.relationships,
@@ -483,10 +496,13 @@ export default function App() {
         relationshipsRef.current,
         id,
         diagramVersionRef.current,
+        diagramReviewRef.current,
       );
       const version = await diagramApi.checkpoint(project.id, id, doc, message || undefined);
       diagramVersionRef.current = version.document.version;
+      diagramReviewRef.current = version.document.reviewNumber ?? version.reviewNumber ?? diagramReviewRef.current;
       setDiagramVersion(version.document.version);
+      setDiagramReview(diagramReviewRef.current);
       dirtyRef.current = false;
       pendingSnapshotRef.current = null;
       setPersistenceStatus('saved');
@@ -504,11 +520,13 @@ export default function App() {
   const resolveConflict = useCallback(async (keepMine: boolean) => {
     if (!conflictSnapshot) return;
     if (keepMine) {
-      // Accept the cost: surface the server version as the new baseline so
+      // Accept the cost: surface the server baselines as the new baseline so
       // autosave resumes, and let the user know their edit will overwrite it
       // (or they can copy changes manually and recompute their version).
       diagramVersionRef.current = conflictSnapshot.version ?? diagramVersionRef.current;
+      diagramReviewRef.current = conflictSnapshot.reviewNumber ?? diagramReviewRef.current;
       setDiagramVersion(diagramVersionRef.current);
+      setDiagramReview(diagramReviewRef.current);
       setConflictSnapshot(null);
       setPersistenceStatus('saved');
       scheduleSave();
@@ -533,6 +551,7 @@ export default function App() {
       relationshipsRef.current,
       id,
       diagramVersionRef.current,
+      diagramReviewRef.current,
     );
     const response = await artifactApi.generate(project.id, id, document);
     const url = window.URL.createObjectURL(response.blob);
@@ -690,6 +709,7 @@ export default function App() {
               relationships,
               diagramId,
               diagramVersion,
+              diagramReview,
             )}
           />
         )}

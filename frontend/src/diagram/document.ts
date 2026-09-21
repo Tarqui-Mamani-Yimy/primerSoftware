@@ -8,8 +8,9 @@ export function createDiagramDocument(
   relationships: UMLRelationship[],
   id?: string,
   version: number = 0,
+  reviewNumber: number = 0,
 ): UMLDiagramDocument {
-  return { schemaVersion: DIAGRAM_SCHEMA_VERSION, id, version, name, classes, relationships };
+  return { schemaVersion: DIAGRAM_SCHEMA_VERSION, id, version, reviewNumber, name, classes, relationships };
 }
 
 /** Returns contract violations rather than coupling callers to a UI renderer. */

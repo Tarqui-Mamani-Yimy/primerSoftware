@@ -7,8 +7,8 @@ export interface AuthenticatedUser { accessToken: string; userId: string; displa
 export interface AssignedProject { id: string; name: string; description: string; role: 'OWNER' | 'COLLABORATOR'; diagramCount: number; }
 export interface CreateProjectInput { name: string; description?: string; }
 export interface CreatedProject extends AssignedProject { accessCode: string; }
-export interface DiagramSummary { id: string; name: string; updatedAt: string; version: number; }
-export interface DiagramVersion { id: string; versionNumber: number; createdAt: string; createdBy: string; message?: string | null; document: UMLDiagramDocument; }
+export interface DiagramSummary { id: string; name: string; updatedAt: string; version: number; reviewNumber: number; }
+export interface DiagramVersion { id: string; versionNumber: number; reviewNumber: number; createdAt: string; createdBy: string; message?: string | null; document: UMLDiagramDocument; }
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly payload?: { message?: string; current?: UMLDiagramDocument }) {
     super(payload?.message ?? `API request failed (${status})`);
@@ -62,8 +62,11 @@ export const projectApi = {
 };
 
 // Autosave (PUT) writes the working document; each PUT sends the client's
-// known baseline as If-Match. POST /checkpoints is the only path that grows
-// the version history and stamps the actor as created_by.
+// known baselines as If-Match (version) and X-Diagram-Review (reviewNumber).
+// POST /checkpoints is the only path that grows the version history and
+// stamps the actor as created_by. A zero reviewNumber is the legacy path:
+// the backend falls back to its live baseline, so callers must always pass
+// the last baseline they received.
 export const diagramApi = {
   list: (projectId: string) => request<DiagramSummary[]>(`/projects/${projectId}/diagrams`),
   create: (projectId: string, d: UMLDiagramDocument) => request<UMLDiagramDocument>(`/projects/${projectId}/diagrams`, { method: 'POST', body: JSON.stringify(d) }),
@@ -71,11 +74,13 @@ export const diagramApi = {
   update: (p: string, id: string, d: UMLDiagramDocument) => {
     const headers: Record<string, string> = {};
     if (typeof d.version === 'number') headers['If-Match'] = `"${d.version}"`;
+    if (typeof d.reviewNumber === 'number') headers['X-Diagram-Review'] = `${d.reviewNumber}`;
     return request<UMLDiagramDocument>(`/projects/${p}/diagrams/${id}`, { method: 'PUT', body: JSON.stringify(d), headers });
   },
   checkpoint: (p: string, id: string, d: UMLDiagramDocument, message?: string) => {
     const headers: Record<string, string> = {};
     if (typeof d.version === 'number') headers['If-Match'] = `"${d.version}"`;
+    if (typeof d.reviewNumber === 'number') headers['X-Diagram-Review'] = `${d.reviewNumber}`;
     if (message && message.trim().length > 0) headers['X-Checkpoint-Message'] = message.trim();
     return request<DiagramVersion>(`/projects/${p}/diagrams/${id}/checkpoints`, { method: 'POST', body: JSON.stringify(d), headers });
   },
