@@ -143,7 +143,12 @@ func (s *Server) Handler() http.Handler {
 	if s.hub != nil {
 		upgrade, ok := s.hub.(realtime.HubUpgrader)
 		if ok {
-			mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}/ws", s.withAuth(upgrade.Upgrade(AuthFuncFor(s.services))))
+			// No withAuth here: browsers cannot set an Authorization header
+			// on a WebSocket handshake, so a Bearer gate would block the
+			// ticket path outright. Auth happens inside the upgrade —
+			// bearer header or one-shot ?ticket= — followed by the same
+			// membership pre-flight every REST endpoint enforces.
+			mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}/ws", upgrade.Upgrade(AuthFuncFor(s.services)))
 		}
 	}
 	return s.withCORS(mux)

@@ -63,6 +63,17 @@ func main() {
 	defer hub.Close()
 
 	tickets := realtime.NewTicketSigner([]byte(cfg.RealtimeTicketSecret), nil)
+	hub.SetHubOptions(realtime.HubOptions{
+		AllowOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			// Empty Origin means a non-browser client (curl, tests, or a
+			// same-origin navigation): Bearer/ticket auth plus the
+			// membership gate still apply, so there is no ambient-auth
+			// CSRF vector to close by denying them.
+			return origin == "" || origin == cfg.CORSAllowedOrigin
+		},
+		Tickets: tickets,
+	})
 	srv := httpapi.NewServer(svc, cfg.CORSAllowedOrigin, hub, tickets)
 	log.Printf("gobackend: listening on :%s", cfg.ServerPort)
 	log.Fatal(http.ListenAndServe(":"+cfg.ServerPort, srv.Handler()))

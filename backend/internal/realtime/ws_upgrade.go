@@ -86,7 +86,11 @@ func Handle(h *Hub, auth AuthFunc) http.HandlerFunc {
 			http.Error(w, "forbidden origin", http.StatusForbidden)
 			return
 		}
-		userID, source, ok := authenticate(r, auth, opts.Tickets)
+		// The ticket (when present) is parsed exactly once here: Parse is
+		// one-shot, so a second Parse of the same tokenID would fail. The
+		// verified claims travel in `ticket` and are re-checked against the
+		// path below without re-parsing.
+		userID, source, ticket, ok := authenticate(r, auth, opts.Tickets)
 		if !ok || userID == "" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -112,11 +116,11 @@ func Handle(h *Hub, auth AuthFunc) http.HandlerFunc {
 			return
 		}
 		// If the auth path was a ticket, double-check the (projectID,
-		// diagramID, userID) triple on the ticket matches the path; a
-		// ticket for room A cannot open a connection to room B.
+		// diagramID, userID) triple from the already-parsed claims matches
+		// the path; a ticket for room A cannot open a connection to room B.
+		// No re-parse here: the ticket is one-shot and already consumed.
 		if source == "ticket" {
-			t, err := opts.Tickets.Parse(r.URL.Query().Get("ticket"))
-			if err != nil || t.ProjectID != projectID || t.DiagramID != diagramID || t.UserID != userID {
+			if ticket.ProjectID != projectID || ticket.DiagramID != diagramID || ticket.UserID != userID {
 				writeClose(conn, websocket.ClosePolicyViolation, "ticket mismatch")
 				return
 			}
@@ -151,33 +155,38 @@ func allowOriginOrDefault(allow OriginChecker) func(*http.Request) bool {
 }
 
 // authenticate extracts the user from the request using either the bearer
-// header or the ticket query. Returns the source ("bearer" or "ticket")
-// so the caller can re-verify cross-field constraints after the upgrade
-// (tickets are bound to a specific path; bearer tokens are not).
-func authenticate(r *http.Request, auth AuthFunc, tickets TicketValidator) (userID, source string, ok bool) {
+// header or the ticket query. It parses a ticket at most once and returns
+// the verified claims alongside the source ("bearer" or "ticket") so the
+// caller can re-verify cross-field constraints after the upgrade without
+// re-parsing (tickets are one-shot; bearer tokens are not path-bound).
+func authenticate(r *http.Request, auth AuthFunc, tickets TicketValidator) (userID, source string, claims Ticket, ok bool) {
 	if auth != nil {
 		if id, ok := auth(r); ok && id != "" {
-			return id, "bearer", true
+			return id, "bearer", Ticket{}, true
 		}
 	}
 	if tickets != nil {
 		if raw := r.URL.Query().Get("ticket"); raw != "" {
-			t, err := tickets.Parse(raw)
-			if err == nil && t.UserID != "" {
-				return t.UserID, "ticket", true
+			if t, err := tickets.Parse(raw); err == nil && t.UserID != "" {
+				return t.UserID, "ticket", t, true
 			}
 		}
 	}
-	return "", "", false
+	return "", "", Ticket{}, false
 }
 
 // projectAndDiagramFromRequest pulls projectId and diagramId out of the
 // request, falling back to URL.Path parsing when the router does not
 // expose PathValue (e.g. bare httptest servers). Production routing
-// always uses ServeMux and PathValue is the source of truth.
+// always uses ServeMux and PathValue is the source of truth. The REST
+// table names the diagram segment {id} (not {diagramId}), so both names
+// are accepted here.
 func projectAndDiagramFromRequest(r *http.Request) (projectID, diagramID string) {
 	projectID = r.PathValue("projectId")
 	diagramID = r.PathValue("diagramId")
+	if diagramID == "" {
+		diagramID = r.PathValue("id")
+	}
 	if projectID != "" && diagramID != "" {
 		return
 	}
