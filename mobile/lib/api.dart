@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -50,6 +51,7 @@ class ApiClient {
   final http.Client client;
   final TokenStore tokenStore;
   final String baseUrl;
+  String get websocketBaseUrl => baseUrl.replaceFirst(RegExp(r'^http'), 'ws');
 
   static String _normalizeBaseUrl(String value) => value.endsWith('/')
       ? value.substring(0, value.length - 1)
@@ -116,14 +118,20 @@ class ApiClient {
   // Autosave carries the version as If-Match so a stale write surfaces as 409
   // with the current document, never as a silent overwrite.
   Future<UmlDocument> updateDiagram(String projectId, String diagramId, UmlDocument document) async {
-    final headers = <String, String>{'If-Match': '"${document.version}"'};
+    final headers = <String, String>{
+      'If-Match': '"${document.version}"',
+      'X-Diagram-Review': '${document.reviewNumber}',
+    };
     return UmlDocument.fromJson(await _request('PUT', '/projects/$projectId/diagrams/$diagramId', body: document.toJson(), extraHeaders: headers) as Map<String, dynamic>);
   }
 
   // Explicit checkpoint: the only path that grows the version history and
   // stamps the active user as created_by.
   Future<DiagramVersion> checkpointDiagram(String projectId, String diagramId, UmlDocument document, String? message) async {
-    final headers = <String, String>{'If-Match': '"${document.version}"'};
+    final headers = <String, String>{
+      'If-Match': '"${document.version}"',
+      'X-Diagram-Review': '${document.reviewNumber}',
+    };
     if (message != null && message.trim().isNotEmpty) headers['X-Checkpoint-Message'] = message.trim();
     return DiagramVersion.fromJson(await _request('POST', '/projects/$projectId/diagrams/$diagramId/checkpoints', body: document.toJson(), extraHeaders: headers) as Map<String, dynamic>);
   }
@@ -135,4 +143,32 @@ class ApiClient {
 
   Future<UmlDocument> restore(String projectId, String diagramId, int version) async =>
       UmlDocument.fromJson(await _request('POST', '/projects/$projectId/diagrams/$diagramId/versions/$version/restore') as Map<String, dynamic>);
+
+  Future<String> realtimeTicket(String projectId, String diagramId) async =>
+      ((await _request('POST', '/projects/$projectId/diagrams/$diagramId/realtime-tickets')) as Map)['ticket'].toString();
+
+  Future<Uint8List> generateArtifact(String projectId, String diagramId, UmlDocument document, {
+    String baseName = 'UmlArchitect',
+    String packageName = 'com.umlarchitect',
+    String buildTool = 'maven',
+  }) async {
+    final token = await tokenStore.read();
+    final request = http.Request('POST', Uri.parse('$baseUrl/projects/$projectId/diagrams/$diagramId/artifact'))
+      ..headers.addAll({
+        'Content-Type': 'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': '******',
+      })
+      ..body = jsonEncode({
+        'document': document.toJson(),
+        'config': {'baseName': baseName, 'packageName': packageName, 'buildTool': buildTool, 'authenticationType': 'jwt'},
+      });
+    final response = await client.send(request);
+    final bytes = await response.stream.toBytes();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      dynamic decoded;
+      try { decoded = jsonDecode(utf8.decode(bytes)); } catch (_) {}
+      throw ApiException(response.statusCode, decoded is Map ? decoded['message']?.toString() ?? 'No se pudo generar el backend.' : 'No se pudo generar el backend.');
+    }
+    return bytes;
+  }
 }

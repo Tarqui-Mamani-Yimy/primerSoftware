@@ -82,4 +82,19 @@ class AppStrings {
   static const checkpointConflictReload = 'Recargar y descartar mi edición';
   static const persistenceConflict = 'Versión desactualizada';
   static const syncOffline = 'Sin conexión';
+  static const deleteClass = 'Eliminar clase';
+  static const deleteClassConfirm = '¿Eliminar esta clase y sus relaciones conectadas?';
+  static const deleteClassRelations = 'Se eliminarán relaciones conectadas';
+  static const deleteClassConfirmAction = 'Eliminar';
+  static const realtimeConnecting = 'Conectando colaboradores…';
+  static const realtimeConnected = 'Colaboración realtime activa';
+  static const realtimeConflict = 'Hay una edición remota mientras tenés cambios locales.';
+  static const realtimeRemoteChanged = 'Otra persona actualizó este diagrama.';
+  static const realtimeDisconnected = 'Colaboración realtime desconectada';
+  static const collaborators = 'Colaboradores en línea';
+  static const generateBackend = 'Generar backend JHipster';
+  static const generatingBackend = 'Generando backend…';
+  static const backendReady = 'Backend generado y listo para compartir.';
+  static const shareBackend = 'Compartir ZIP';
+  static const backendFailed = 'No se pudo generar el backend.';
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -6,6 +7,8 @@ import 'api.dart';
 import 'models.dart';
 import 'strings.dart';
 import 'voice_transcription_service.dart';
+import 'realtime_service.dart';
+import 'artifact_service.dart';
 
 void main() => runApp(UmlArchitectApp(api: ApiClient()));
 
@@ -294,6 +297,13 @@ class _WorkspacePageState extends State<WorkspacePage> {
   bool voiceRecording = false;
   String voiceStatus = '';
   String voiceText = '';
+  DiagramRealtimeService? realtime;
+  StreamSubscription<RealtimeEvent>? realtimeSubscription;
+  final List<RealtimeMember> collaborators = [];
+  bool realtimeBusy = false;
+  String realtimeStatus = AppStrings.realtimeConnecting;
+  File? generatedArtifact;
+  bool generatingArtifact = false;
   DateTime? lastTouched;
   // Conflict UI: when the server returns 409 we hold the snapshot here and
   // give the user a choice between overwriting (keep mine) and discarding
@@ -305,6 +315,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     super.initState();
     document = widget.document;
     name = TextEditingController(text: document.name);
+    unawaited(connectRealtime());
   }
 
   @override
@@ -312,6 +323,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
     autosaveTimer?.cancel();
     name.dispose();
     unawaited(voiceService.dispose());
+    realtimeSubscription?.cancel();
+    unawaited(realtime?.dispose());
     super.dispose();
   }
 
@@ -334,6 +347,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       } finally {
         if (mounted) setState(() => voiceBusy = false);
       }
+
       return;
     }
 
@@ -350,6 +364,107 @@ class _WorkspacePageState extends State<WorkspacePage> {
     } finally {
       if (mounted) setState(() => voiceBusy = false);
     }
+  }
+
+  Future<void> connectRealtime() async {
+    final id = document.id;
+    if (id == null) return;
+    realtime = DiagramRealtimeService(api: widget.api, projectId: widget.project.id, diagramId: id);
+    realtimeSubscription = realtime!.events.listen((event) {
+      if (!mounted) return;
+      if (event is RealtimeSnapshot) {
+        setState(() {
+          if (dirty) {
+            conflictRemote = event.document;
+            realtimeStatus = AppStrings.realtimeConflict;
+          } else {
+            document = event.document;
+            name.text = event.document.name;
+            document.reviewNumber = event.reviewNumber;
+            document.version = event.version;
+            realtimeStatus = AppStrings.realtimeConnected;
+          }
+          collaborators..clear()..addAll(event.members);
+        });
+      } else if (event is RealtimePresenceChanged) {
+        setState(() {
+          collaborators.removeWhere((member) => member.userId == event.member.userId);
+          if (event.joined) collaborators.add(event.member);
+        });
+      } else if (event is RealtimeDiagramChanged && event.reviewNumber > document.reviewNumber) {
+        unawaited(_applyRemoteChange(event));
+      } else if (event is RealtimeErrorEvent) {
+        setState(() => realtimeStatus = AppStrings.realtimeDisconnected);
+      }
+    });
+    try {
+      setState(() => realtimeBusy = true);
+      await realtime!.connect();
+      if (mounted) setState(() => realtimeStatus = AppStrings.realtimeConnected);
+    } catch (_) {
+      if (mounted) setState(() => realtimeStatus = AppStrings.realtimeDisconnected);
+    } finally {
+      if (mounted) setState(() => realtimeBusy = false);
+    }
+  }
+
+  Future<void> _applyRemoteChange(RealtimeDiagramChanged event) async {
+    try {
+      final remote = await widget.api.diagram(widget.project.id, document.id!);
+      if (!mounted || remote.reviewNumber <= document.reviewNumber) return;
+      setState(() {
+        if (dirty) {
+          conflictRemote = remote;
+          realtimeStatus = AppStrings.realtimeConflict;
+        } else {
+          document = remote;
+          name.text = remote.name;
+          realtimeStatus = AppStrings.realtimeRemoteChanged;
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => realtimeStatus = AppStrings.realtimeConflict);
+    }
+  }
+
+  Future<void> generateBackend() async {
+    if (document.id == null || generatingArtifact) return;
+    setState(() => generatingArtifact = true);
+    try {
+      final bytes = await widget.api.generateArtifact(widget.project.id, document.id!, document);
+      final file = await ArtifactService().save(bytes);
+      if (mounted) setState(() { generatedArtifact = file; saveStatus = AppStrings.backendReady; });
+    } catch (_) {
+      if (mounted) setState(() => saveStatus = AppStrings.backendFailed);
+    } finally {
+      if (mounted) setState(() => generatingArtifact = false);
+    }
+  }
+
+  Future<void> shareBackend() async {
+    final file = generatedArtifact;
+    if (file != null) await ArtifactService().share(file);
+  }
+
+  Future<void> deleteClass(UmlClass umlClass) async {
+    final count = document.relationships.where((relationship) => relationship.sourceId == umlClass.id || relationship.targetId == umlClass.id).length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(AppStrings.deleteClass),
+        content: Text('${AppStrings.deleteClassConfirm}\n${AppStrings.deleteClassRelations}: $count'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(AppStrings.cancel)),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text(AppStrings.deleteClassConfirmAction)),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      document.classes.removeWhere((item) => item.id == umlClass.id);
+      document.relationships.removeWhere((relationship) => relationship.sourceId == umlClass.id || relationship.targetId == umlClass.id);
+    });
+    scheduleAutosave();
   }
 
   // flushOnExit is called when the user pops or the OS starts tearing down
@@ -397,7 +512,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       // One best-effort retry on transient failures: the next timer will pick
       // up from where we left off and the working document is preserved.
       await Future<void>.delayed(const Duration(milliseconds: 600));
-      if (!dirty || document.id == null || saving) return;
+      if (!dirty || document.id == null) return;
       try {
         document = await widget.api.updateDiagram(widget.project.id, document.id!, document);
         dirty = false;
@@ -418,6 +533,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     try {
       final created = await widget.api.checkpointDiagram(widget.project.id, document.id!, document, message.isEmpty ? null : message);
       document.version = created.document?.version ?? (document.version + 1);
+      document.reviewNumber = created.reviewNumber;
       dirty = false;
       if (mounted) setState(() => saveStatus = AppStrings.checkpointSucceeded);
     } on ApiException catch (error) {
@@ -430,7 +546,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       }
       if (mounted) setState(() => saveStatus = AppStrings.saveFailed);
     } catch (_) {
-      if (mounted) setState(() => saveStatus = AppStrings.checkpointSucceeded);
+      if (mounted) setState(() => saveStatus = AppStrings.saveFailed);
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -444,6 +560,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       // autosave resume. Subsequent PUTs will succeed but the latest
       // checkpoint will be overwritten; the user is on the hook for that.
       document.version = remote.version;
+      document.reviewNumber = remote.reviewNumber;
       conflictRemote = null;
       dirty = false;
       scheduleAutosave();
@@ -541,7 +658,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
     final busy = !mounted ? false : saving;
-    await showDialog<String?>(
+    final result = await showDialog<String?>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text(AppStrings.checkpointTitle),
@@ -564,8 +681,13 @@ class _WorkspacePageState extends State<WorkspacePage> {
         ],
       ),
     );
+    if (result == null) {
+      controller.dispose();
+      return;
+    }
+    final message = result;
     controller.dispose();
-    await createCheckpoint(controller.text);
+    await createCheckpoint(message);
   }
 
   void confirmExit() async {
@@ -632,6 +754,24 @@ class _WorkspacePageState extends State<WorkspacePage> {
             ListView(padding: const EdgeInsets.all(16), children: [
               TextField(controller: name, onChanged: (_) => scheduleAutosave(), decoration: const InputDecoration(labelText: AppStrings.diagramName)),
               Padding(padding: const EdgeInsets.only(top: 8), child: Text(saveStatus, key: const Key('workspace.status'))),
+              Padding(padding: const EdgeInsets.only(top: 8), child: Text(realtimeStatus, key: const Key('workspace.realtime.status'))),
+              if (collaborators.isNotEmpty)
+                Card(child: ListTile(
+                  leading: const Icon(Icons.people),
+                  title: const Text(AppStrings.collaborators),
+                  subtitle: Text(collaborators.map((member) => member.displayName).join(', ')),
+                )),
+              Row(children: [
+                Expanded(child: FilledButton.icon(
+                  onPressed: generatingArtifact ? null : generateBackend,
+                  icon: generatingArtifact ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator()) : const Icon(Icons.archive),
+                  label: Text(generatingArtifact ? AppStrings.generatingBackend : AppStrings.generateBackend),
+                )),
+                if (generatedArtifact != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton(onPressed: shareBackend, icon: const Icon(Icons.share), tooltip: AppStrings.shareBackend),
+                ],
+              ]),
               const SizedBox(height: 16),
               Card(
                 child: Padding(
@@ -676,6 +816,14 @@ class _WorkspacePageState extends State<WorkspacePage> {
                   title: const Text(AppStrings.associationClass, style: TextStyle(fontSize: 13)),
                   value: umlClass.isAssociationClass,
                   onChanged: (value) { umlClass.isAssociationClass = value; scheduleAutosave(); },
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => deleteClass(umlClass),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text(AppStrings.deleteClass),
+                  ),
                 ),
               ])))),
               if (document.classes.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text(AppStrings.addClassHint)),

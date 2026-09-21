@@ -11,6 +11,9 @@ dependencies:
     sdk: flutter
   flutter_secure_storage: ^9.2.2
   http: ^1.2.2
+  path_provider: ^2.1.5
+  share_plus: ^10.1.4
+  web_socket_channel: ^3.0.1
   whisper_cpp_flutter_plus: ^0.4.1
 
 dev_dependencies:
