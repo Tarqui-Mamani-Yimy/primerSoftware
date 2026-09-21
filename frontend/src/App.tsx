@@ -50,6 +50,9 @@ export default function App() {
   const diagramReviewRef = useRef(diagramReview);
   const userIdRef = useRef(userId);
   const realtimeClientRef = useRef<RealtimeClient | null>(null);
+  const realtimeGenRef = useRef(0);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
   const activeProjectRef = useRef(activeProject);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
   const saveSequenceRef = useRef(0);
@@ -114,21 +117,30 @@ export default function App() {
     try {
       const saved = await diagramApi.update(project.id, id, document);
       if (sequence === saveSequenceRef.current && activeProjectRef.current?.id === project.id && diagramIdRef.current === id) {
-        classesRef.current = saved.classes;
-        relationshipsRef.current = saved.relationships;
-        diagramNameRef.current = saved.name;
-        diagramIdRef.current = saved.id;
+        // Adopt the fresh baselines first: the server already bumped review.
         diagramVersionRef.current = saved.version ?? version;
         diagramReviewRef.current = saved.reviewNumber ?? review;
-        setClasses(saved.classes);
-        setRelationships(saved.relationships);
-        setDiagramName(saved.name);
-        setDiagramId(saved.id);
         setDiagramVersion(saved.version ?? version);
         setDiagramReview(saved.reviewNumber ?? review);
-        dirtyRef.current = false;
-        pendingSnapshotRef.current = null;
-        setPersistenceStatus('saved');
+        if (pendingSnapshotRef.current === snapshot) {
+          // Nothing newer arrived during the PUT: adopt content, clear dirty.
+          classesRef.current = saved.classes;
+          relationshipsRef.current = saved.relationships;
+          diagramNameRef.current = saved.name;
+          diagramIdRef.current = saved.id;
+          setClasses(saved.classes);
+          setRelationships(saved.relationships);
+          setDiagramName(saved.name);
+          setDiagramId(saved.id);
+          dirtyRef.current = false;
+          pendingSnapshotRef.current = null;
+          setPersistenceStatus('saved');
+        } else {
+          // Edits landed mid-PUT: keep them and re-flush on the new baseline
+          // instead of discarding them as saved.
+          setPersistenceStatus('saving');
+          scheduleSave();
+        }
         // One safe retry on a transient network failure, never on a 409
         // (which is a true concurrency conflict that the user must resolve).
       } else {
@@ -150,7 +162,9 @@ export default function App() {
       // One bounded retry on transient failures: networks flake, the timer
       // was already cleared, and the document is still dirty. Any other
       // persistent failure surfaces as a banner the user can clear by hand.
-      if (sequence === saveSequenceRef.current && activeProjectRef.current?.id === project.id && diagramIdRef.current === id && baseline === diagramVersionRef.current && reviewBaseline === diagramReviewRef.current) {
+      // The retry only runs while the failed snapshot is still the pending
+      // one; newer edits already scheduled their own flush.
+      if (sequence === saveSequenceRef.current && activeProjectRef.current?.id === project.id && diagramIdRef.current === id && baseline === diagramVersionRef.current && reviewBaseline === diagramReviewRef.current && pendingSnapshotRef.current === snapshot) {
         try {
           const saved = await diagramApi.update(project.id, id, document);
           if (sequence === saveSequenceRef.current) {
@@ -158,16 +172,33 @@ export default function App() {
             diagramReviewRef.current = saved.reviewNumber ?? review;
             setDiagramVersion(saved.version ?? version);
             setDiagramReview(saved.reviewNumber ?? review);
-            dirtyRef.current = false;
-            pendingSnapshotRef.current = null;
-            setPersistenceStatus('saved');
+            if (pendingSnapshotRef.current === snapshot) {
+              dirtyRef.current = false;
+              pendingSnapshotRef.current = null;
+              setPersistenceStatus('saved');
+            } else {
+              setPersistenceStatus('saving');
+              scheduleSave();
+            }
             void refreshDiagrams(project.id).catch(() => undefined);
           }
-        } catch {
-          if (sequence === saveSequenceRef.current) setPersistenceStatus('error');
+        } catch (retryError) {
+          if (sequence !== saveSequenceRef.current) return;
+          // A 409 on retry is still a real conflict: keep the server's
+          // current document for resolution instead of a generic error.
+          if (retryError instanceof ApiError && retryError.status === 409) {
+            setPersistenceStatus('conflict');
+            setConflictSnapshot(retryError.payload?.current ?? null);
+          } else {
+            setPersistenceStatus('error');
+          }
         }
       } else if (sequence === saveSequenceRef.current) {
-        setPersistenceStatus('error');
+        // A newer snapshot is already queued (or the diagram changed): never
+        // paint a generic error over work that still has a flush pending.
+        if (!pendingSnapshotRef.current || activeProjectRef.current?.id !== project.id || diagramIdRef.current !== id) {
+          setPersistenceStatus('error');
+        }
       }
     } finally {
       inflightRef.current = false;
@@ -210,6 +241,12 @@ export default function App() {
     inflightRef.current = false;
     dirtyRef.current = false;
     pendingSnapshotRef.current = null;
+    realtimeGenRef.current += 1;
+    reconnectAttemptsRef.current = 0;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = undefined;
+    }
     realtimeClientRef.current?.disconnect();
     realtimeClientRef.current = null;
     setPresenceMembers([]);
@@ -220,7 +257,16 @@ export default function App() {
   // Authenticated realtime: fetch a one-shot ticket over REST, then open the
   // diagram WebSocket. Presence is best-effort — a ticket/socket failure
   // marks presence unavailable but never blocks editing or autosave.
+  // Every setup run owns a generation token: slow ticket fetches and late
+  // socket callbacks from a previous diagram/project are dropped instead
+  // of being applied to the wrong document.
   const setupRealtime = useCallback(async (project: AssignedProject, id: string) => {
+    const generation = ++realtimeGenRef.current;
+    reconnectAttemptsRef.current = 0;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = undefined;
+    }
     realtimeClientRef.current?.disconnect();
     realtimeClientRef.current = null;
     setPresenceMembers([]);
@@ -230,11 +276,17 @@ export default function App() {
       const issued = await realtimeApi.ticket(project.id, id);
       ticket = issued.ticket;
     } catch {
-      setRealtimeState('unavailable');
+      if (realtimeGenRef.current === generation) setRealtimeState('unavailable');
       return;
     }
+    if (realtimeGenRef.current !== generation) return;
+    const stillCurrent = () =>
+      realtimeGenRef.current === generation &&
+      activeProjectRef.current?.id === project.id &&
+      diagramIdRef.current === id;
     const client = new RealtimeClient(buildRealtimeWsUrl(project.id, id, ticket), {
       onSnapshot: (snapshot) => {
+        if (!stillCurrent()) return;
         setPresenceMembers(snapshot.members ?? []);
         // Adopt the snapshot baseline when it is newer and the editor has
         // no unsaved work; a dirty editor keeps its baseline and resolves
@@ -257,14 +309,15 @@ export default function App() {
       onChanged: (event) => {
         // The hub already skips the originator; ignore own echoes defensively.
         if (!event || event.actorId === userIdRef.current) return;
+        if (!stillCurrent()) return;
         const currentProject = activeProjectRef.current;
         const currentId = diagramIdRef.current;
-        if (!currentProject || !currentId || currentId !== id) return;
+        if (!currentProject || !currentId) return;
         if (dirtyRef.current) {
           // Dirty editor: surface the server document as a conflict instead
           // of overwriting unsaved work.
           void diagramApi.get(currentProject.id, currentId).then((fresh) => {
-            if (diagramIdRef.current !== currentId) return;
+            if (!stillCurrent()) return;
             setPersistenceStatus('conflict');
             setConflictSnapshot(fresh);
             setRemoteNotice(es.canvas.remoteChangeConflict);
@@ -272,14 +325,31 @@ export default function App() {
           return;
         }
         void diagramApi.get(currentProject.id, currentId).then((fresh) => {
-          if (diagramIdRef.current !== currentId || dirtyRef.current) return;
+          if (!stillCurrent() || dirtyRef.current) return;
           applyDocument(fresh);
           setPersistenceStatus('saved');
           setRemoteNotice(es.canvas.remoteChangeApplied);
         }).catch(() => undefined);
       },
       onClose: () => {
-        if (realtimeClientRef.current === client) setRealtimeState('unavailable');
+        if (realtimeClientRef.current !== client) return;
+        realtimeClientRef.current = null;
+        if (!stillCurrent()) {
+          setRealtimeState('idle');
+          return;
+        }
+        // Unexpected close (the ticket is one-shot, so reconnect with a
+        // fresh ticket). Bounded: after 5 failed attempts stay unavailable
+        // until the next diagram open or explicit save flow.
+        if (reconnectAttemptsRef.current >= 5) {
+          setRealtimeState('unavailable');
+          return;
+        }
+        reconnectAttemptsRef.current += 1;
+        setRealtimeState('connecting');
+        reconnectTimerRef.current = setTimeout(() => {
+          if (stillCurrent()) void setupRealtime(project, id);
+        }, 2000);
       },
     });
     realtimeClientRef.current = client;
@@ -404,6 +474,7 @@ export default function App() {
       applyDocument(saved);
       setPersistenceStatus('saved');
       await refreshDiagrams(project.id);
+      if (saved.id) void setupRealtime(project, saved.id);
     } catch {
       setPersistenceStatus('error');
     } finally {
@@ -565,6 +636,9 @@ export default function App() {
       applyDocument(await diagramApi.restore(project.id, id, versionNumber));
       setPersistenceStatus('saved');
       await Promise.all([refreshDiagrams(project.id), loadVersions()]);
+      // Restored content is a new baseline: reconnect with a fresh ticket
+      // so presence and change events track the restored document.
+      void setupRealtime(project, id);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         setPersistenceStatus('conflict');
@@ -600,6 +674,9 @@ export default function App() {
       pendingSnapshotRef.current = null;
       setPersistenceStatus('saved');
       await Promise.all([refreshDiagrams(project.id), loadVersions()]);
+      // A checkpoint bumps the baseline: reconnect with a fresh ticket so
+      // presence and change events track the checkpointed document.
+      void setupRealtime(project, id);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         setPersistenceStatus('conflict');
@@ -608,7 +685,7 @@ export default function App() {
         setPersistenceStatus('error');
       }
     }
-  }, [loadVersions]);
+  }, [loadVersions, setupRealtime]);
 
   const resolveConflict = useCallback(async (keepMine: boolean) => {
     if (!conflictSnapshot) return;
