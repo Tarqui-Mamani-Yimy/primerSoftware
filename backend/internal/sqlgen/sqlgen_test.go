@@ -142,6 +142,73 @@ func TestRenderSQLStructure(t *testing.T) {
 	}
 }
 
+// TestRenderSQLFKOwnershipMatchesColumnTable asserts that every FK column
+// declared inside a CREATE TABLE has its ALTER TABLE ... FOREIGN KEY on the
+// SAME table. A column declared in table A with a constraint on table B is
+// a broken schema that PostgreSQL rejects at runtime.
+func TestRenderSQLFKOwnershipMatchesColumnTable(t *testing.T) {
+	m := modelFromDoc(probeDoc())
+	sql := sqlgen.RenderSQL(m)
+
+	tables := map[string]map[string]bool{}
+	var currentTable string
+
+	for _, line := range strings.Split(sql, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "CREATE TABLE IF NOT EXISTS ") {
+			header := strings.TrimPrefix(trimmed, "CREATE TABLE IF NOT EXISTS ")
+			header = strings.TrimSuffix(header, " (")
+			currentTable = strings.TrimSpace(header)
+			tables[currentTable] = map[string]bool{}
+			continue
+		}
+		if trimmed == ");" {
+			currentTable = ""
+			continue
+		}
+		if currentTable != "" {
+			if strings.HasPrefix(trimmed, "PRIMARY KEY") || strings.HasPrefix(trimmed, "CONSTRAINT") {
+				continue
+			}
+			fields := strings.Fields(trimmed)
+			if len(fields) >= 1 {
+				col := strings.TrimSuffix(fields[0], ",")
+				tables[currentTable][col] = true
+			}
+		}
+	}
+
+	for _, line := range strings.Split(sql, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "ALTER TABLE ") {
+			continue
+		}
+		parts := strings.Fields(trimmed)
+		if len(parts) < 3 {
+			continue
+		}
+		alterTable := parts[2]
+
+		fkIdx := strings.Index(trimmed, "FOREIGN KEY (")
+		if fkIdx == -1 {
+			continue
+		}
+		colStart := fkIdx + len("FOREIGN KEY (")
+		colEnd := strings.Index(trimmed[colStart:], ")")
+		colName := trimmed[colStart : colStart+colEnd]
+
+		cols, exists := tables[alterTable]
+		if !exists {
+			t.Errorf("ALTER TABLE references unknown table %q", alterTable)
+			continue
+		}
+		if !cols[colName] {
+			t.Errorf("Schema mismatch: ALTER TABLE %s references column %q, but column %q was NOT declared in CREATE TABLE %s (declared columns: %v)",
+				alterTable, colName, colName, alterTable, cols)
+		}
+	}
+}
+
 func TestRenderSQLRelationshipsUsePluralCollectionNames(t *testing.T) {
 	m := modelFromDoc(probeDoc())
 	sql := sqlgen.RenderSQL(m)
@@ -163,6 +230,7 @@ func TestRenderCompose(t *testing.T) {
 		`      - "5432:5432"`,
 		"- ./database/postgres_data:/var/lib/postgresql/data",
 		"- ./database/my-project.sql:/docker-entrypoint-initdb.d/init.sql:ro",
+		"rm -rf database/postgres_data",
 	} {
 		if !strings.Contains(yml, want) {
 			t.Errorf("compose missing %q\n---\n%s", want, yml)
