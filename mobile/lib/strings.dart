@@ -39,7 +39,10 @@ class AppStrings {
       'No se pudo completar la operación. Intentá nuevamente.';
   static const voiceTranscription = 'Transcripción de voz';
   static const voiceTranscriptionHelp =
-      'La voz se procesa localmente y no modifica el diagrama.';
+      'La voz se procesa localmente. Revisá y confirmá cada cambio antes de aplicarlo.';
+  static const voicePreviewTitle = 'Vista previa del cambio';
+  static const voicePreviewConfirm = 'Confirmar cambio';
+  static const voicePreviewCancel = 'Cancelar';
   static const recordVoice = 'Grabar voz';
   static const stopAndTranscribe = 'Detener y transcribir';
   static const preparingVoiceModel = 'Preparando modelo local…';

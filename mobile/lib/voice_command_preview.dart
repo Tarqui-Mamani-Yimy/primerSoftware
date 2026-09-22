@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'strings.dart';
+
 class VoiceCommandPreviewPanel extends StatelessWidget {
   const VoiceCommandPreviewPanel({
     super.key,
@@ -22,7 +24,7 @@ class VoiceCommandPreviewPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Vista previa del cambio'),
+              const Text(AppStrings.voicePreviewTitle),
               const SizedBox(height: 4),
               Text(transcript),
               const SizedBox(height: 4),
@@ -34,13 +36,13 @@ class VoiceCommandPreviewPanel extends StatelessWidget {
                   TextButton(
                     key: const Key('workspace.voice.cancel'),
                     onPressed: onCancel,
-                    child: const Text('Cancelar'),
+                    child: const Text(AppStrings.voicePreviewCancel),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
                     key: const Key('workspace.voice.confirm'),
                     onPressed: onConfirm,
-                    child: const Text('Confirmar cambio'),
+                    child: const Text(AppStrings.voicePreviewConfirm),
                   ),
                 ],
               ),

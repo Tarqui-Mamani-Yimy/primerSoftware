@@ -576,7 +576,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   void confirmVoicePreview() {
     final preview = voicePreview;
-    if (preview == null) return;
+    if (preview == null ||
+        !canConfirmVoicePreview(preview, hasConflict: conflictRemote != null)) {
+      return;
+    }
     setState(() {
       if (preview.command.kind == VoiceCommandKind.undoVoiceCommand) {
         document = cloneUmlDocument(preview.document);
@@ -608,6 +611,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   void _invalidateVoiceUndo() {
     lastVoiceSnapshot = null;
+    voicePreview = invalidateVoicePreview(voicePreview);
   }
 
   Future<void> connectRealtime() async {

@@ -12,6 +12,15 @@ class VoiceMutationPreview {
   final UmlDocument document;
 }
 
+bool canConfirmVoicePreview(
+  VoiceMutationPreview? preview, {
+  required bool hasConflict,
+}) =>
+    preview != null && !hasConflict;
+
+VoiceMutationPreview? invalidateVoicePreview(VoiceMutationPreview? preview) =>
+    null;
+
 VoiceMutationPreview? previewVoiceCommand(
   UmlDocument document,
   VoiceCommand command,

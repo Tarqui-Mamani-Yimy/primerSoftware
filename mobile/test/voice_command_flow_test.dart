@@ -50,6 +50,36 @@ void main() {
     expect(preview!.document.relationships.single.type, 'association');
     expect(original.toJson(), equals(before));
   });
+
+  test('manual or remote invalidation blocks a pending regular preview', () {
+    final preview = previewVoiceCommand(
+      _document(),
+      parseVoiceCommand('crear una clase Factura')!,
+    );
+
+    expect(canConfirmVoicePreview(preview, hasConflict: false), isTrue);
+    final invalidated = invalidateVoicePreview(preview);
+    expect(invalidated, isNull);
+    expect(canConfirmVoicePreview(invalidated, hasConflict: false), isFalse);
+    expect(canConfirmVoicePreview(preview, hasConflict: true), isFalse);
+  });
+
+  test('manual or remote invalidation blocks a pending undo preview', () {
+    final snapshot = _document(
+      classes: [
+        UmlClass(id: 'user', name: 'User'),
+        UmlClass(id: 'invoice', name: 'Invoice'),
+      ],
+    );
+    final undo = VoiceMutationPreview(
+      command: parseVoiceCommand('deshacer')!,
+      document: snapshot,
+    );
+
+    expect(canConfirmVoicePreview(undo, hasConflict: false), isTrue);
+    expect(invalidateVoicePreview(undo), isNull);
+    expect(canConfirmVoicePreview(undo, hasConflict: true), isFalse);
+  });
 }
 
 UmlDocument _document({List<UmlClass>? classes}) => UmlDocument(
