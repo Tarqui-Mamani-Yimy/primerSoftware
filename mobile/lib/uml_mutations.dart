@@ -249,6 +249,7 @@ UmlDocument? createUmlRelationship(
   final normalizedType = type.trim();
   if (source == null ||
       target == null ||
+      !_validRelationshipEndpoints(source, target, normalizedType) ||
       !_validText(relationshipId) ||
       !_validRelationshipType(normalizedType) ||
       !_optionalText(sourceMultiplicity) ||
@@ -307,9 +308,16 @@ UmlDocument? updateUmlRelationship(
       : _findTargetClass(document.classes,
               className: targetClassName, classId: targetClassId)
           ?.id;
+  final source =
+      sourceId == null ? null : _findClassById(document.classes, sourceId);
+  final target =
+      targetId == null ? null : _findClassById(document.classes, targetId);
   if (index < 0 ||
       sourceId == null ||
       targetId == null ||
+      source == null ||
+      target == null ||
+      !_validRelationshipEndpoints(source, target, normalizedType) ||
       !_validRelationshipType(normalizedType) ||
       !_optionalText(sourceMultiplicity) ||
       !_optionalText(targetMultiplicity) ||
@@ -415,7 +423,13 @@ UmlClass? _findTargetClass(
     final matches = classes.where((item) => item.id == classId!.trim());
     return matches.length == 1 ? matches.single : null;
   }
+
   return _findUniqueClass(classes, className);
+}
+
+UmlClass? _findClassById(List<UmlClass> classes, String id) {
+  final matches = classes.where((item) => item.id == id);
+  return matches.length == 1 ? matches.single : null;
 }
 
 UmlClass? _findUniqueClass(List<UmlClass> classes, String? name) {
@@ -439,6 +453,18 @@ bool _validRelationshipType(String value) => const {
       'realization',
       'dependency',
     }.contains(value);
+
+bool _validRelationshipEndpoints(
+  UmlClass source,
+  UmlClass target,
+  String type,
+) {
+  if (source.isAssociationClass || target.isAssociationClass) return false;
+  if (type != 'realization') return true;
+  final sourceIsInterfaceOrEnum =
+      source.stereotype == '«Interface»' || source.stereotype == '«Enum»';
+  return !sourceIsInterfaceOrEnum && target.stereotype == '«Interface»';
+}
 
 final _multiplicityPattern = RegExp(r'^\s*(\d+|\*)\s*(\.\.\s*(\d+|\*))?\s*$');
 

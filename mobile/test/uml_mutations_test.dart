@@ -366,6 +366,120 @@ void main() {
     expect(original.relationships, isEmpty);
   });
 
+  test('rejects association classes as relationship endpoints', () {
+    final original = UmlDocument(
+      name: 'Associations',
+      classes: [
+        UmlClass(id: 'user', name: 'User'),
+        UmlClass(
+            id: 'association', name: 'Membership', isAssociationClass: true),
+      ],
+    );
+
+    expect(
+      createUmlRelationship(
+        original,
+        relationshipId: 'invalid-association-endpoint',
+        sourceClassName: 'Membership',
+        targetClassName: 'User',
+        type: 'association',
+      ),
+      isNull,
+    );
+    final withRelationship = _document(
+      relationships: const [
+        UmlRelationship(
+          id: 'user-order',
+          sourceId: 'user',
+          targetId: 'order',
+          type: 'association',
+        ),
+      ],
+    );
+    expect(
+      updateUmlRelationship(
+        withRelationship,
+        relationshipId: 'user-order',
+        type: 'association',
+        sourceClassId: 'user',
+        targetClassId: 'association',
+      ),
+      isNull,
+    );
+  });
+
+  test('enforces realization source and target constraints', () {
+    final interfaceDocument = UmlDocument(
+      name: 'Interfaces',
+      classes: [
+        UmlClass(id: 'user', name: 'User'),
+        UmlClass(id: 'contract', name: 'Contract', stereotype: '«Interface»'),
+      ],
+    );
+    expect(
+      createUmlRelationship(
+        interfaceDocument,
+        relationshipId: 'valid-realization',
+        sourceClassName: 'User',
+        targetClassName: 'Contract',
+        type: 'realization',
+      ),
+      isNotNull,
+    );
+    expect(
+      createUmlRelationship(
+        interfaceDocument,
+        relationshipId: 'invalid-source',
+        sourceClassName: 'Contract',
+        targetClassName: 'User',
+        type: 'realization',
+      ),
+      isNull,
+    );
+    expect(
+      createUmlRelationship(
+        _document(),
+        relationshipId: 'invalid-target',
+        sourceClassName: 'User',
+        targetClassName: 'Order',
+        type: 'realization',
+      ),
+      isNull,
+    );
+    final existing = UmlDocument(
+      name: 'Existing',
+      classes: interfaceDocument.classes,
+      relationships: const [
+        UmlRelationship(
+          id: 'existing',
+          sourceId: 'user',
+          targetId: 'contract',
+          type: 'association',
+        ),
+      ],
+    );
+    expect(
+      updateUmlRelationship(
+        existing,
+        relationshipId: 'existing',
+        type: 'realization',
+        sourceClassId: 'user',
+        targetClassId: 'contract',
+      ),
+      isNotNull,
+    );
+    expect(
+      updateUmlRelationship(
+        existing,
+        relationshipId: 'existing',
+        type: 'realization',
+        sourceClassId: 'contract',
+        targetClassId: 'user',
+      ),
+      isNull,
+    );
+  });
+
   test(
     'rejects missing, ambiguous, duplicate, and invalid requests unchanged',
     () {
