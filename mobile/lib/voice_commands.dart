@@ -56,8 +56,56 @@ final _multiplicityPattern = RegExp(
   r'^(?:\d+|\*)(?:\.\.(?:\d+|\*))?$',
 );
 
+// Punctuation Deepgram's smart_format inserts inside a transcript (commas,
+// semicolons, colons, Spanish inverted marks, and straight/curly/angle
+// quotes) that would otherwise break downstream patterns such as
+// _cleanName.
+final _innerPunctuationPattern = RegExp(r'[,;:¿¡"“”«»]');
+
+/// Strips smart_format punctuation and collapses whitespace before parsing.
+String _normalizeTranscript(String raw) {
+  final withoutPunctuation = raw.replaceAll(_innerPunctuationPattern, ' ');
+  final collapsed = withoutPunctuation.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return collapsed.replaceFirst(RegExp(r'[.!?]+$'), '').trim();
+}
+
+/// Maps the small Spanish attribute/return type vocabulary (case/accent
+/// insensitive) a voice transcript can produce to the canonical Java type
+/// name jdlgen expects. Unknown types (including already-canonical English
+/// names such as "String") pass through unchanged.
+String _mapSpanishType(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'entero':
+      return 'Integer';
+    case 'texto':
+    case 'cadena':
+      return 'String';
+    case 'decimal':
+      return 'BigDecimal';
+    case 'fecha':
+      return 'LocalDate';
+    case 'fecha hora':
+    case 'fecha y hora':
+      return 'ZonedDateTime';
+    case 'booleano':
+    case 'lógico':
+    case 'logico':
+      return 'Boolean';
+    case 'largo':
+      return 'Long';
+    case 'flotante':
+      return 'Float';
+    case 'doble':
+      return 'Double';
+    case 'uuid':
+      return 'UUID';
+    default:
+      return value;
+  }
+}
+
 VoiceCommand? parseVoiceCommand(String transcript) {
-  final text = transcript.trim().replaceFirst(RegExp(r'[.!?]+$'), '').trim();
+  final text = _normalizeTranscript(transcript);
   if (text.isEmpty ||
       RegExp(r'\bpar[aá]metros?\b', caseSensitive: false).hasMatch(text)) {
     return null;
@@ -78,7 +126,7 @@ VoiceCommand? parseVoiceCommand(String transcript) {
     return VoiceCommand(
       kind: VoiceCommandKind.addAttribute,
       name: name,
-      type: type,
+      type: _mapSpanishType(type),
       className: className,
     );
   }
@@ -92,7 +140,7 @@ VoiceCommand? parseVoiceCommand(String transcript) {
     return VoiceCommand(
       kind: VoiceCommandKind.addMethod,
       name: name,
-      returnType: returnType,
+      returnType: _mapSpanishType(returnType),
       className: className,
     );
   }
@@ -255,7 +303,85 @@ String? _cleanName(String value) {
       : null;
 }
 
+// _spokenNumbers maps the small Spanish cardinal vocabulary a speech-to-text
+// transcript can produce for a UML multiplicity bound to its digit form.
+const _spokenNumbers = {
+  'cero': '0',
+  'uno': '1',
+  'dos': '2',
+  'tres': '3',
+  'cuatro': '4',
+  'cinco': '5',
+  'seis': '6',
+  'siete': '7',
+  'ocho': '8',
+  'nueve': '9',
+  'diez': '10',
+};
+
+final _digitsOnly = RegExp(r'^\d+$');
+
+/// Resolves one spoken or literal multiplicity bound token ("uno", "5",
+/// "muchos", "*") to its digit/"*" form, or null when unrecognized.
+String? _spokenBound(String token) {
+  final norm = token.trim().toLowerCase();
+  if (norm == '*' ||
+      norm == 'muchos' ||
+      norm == 'varios' ||
+      norm == 'asterisco' ||
+      norm == 'estrella' ||
+      norm == 'n') {
+    return '*';
+  }
+  if (_digitsOnly.hasMatch(norm)) return norm;
+  return _spokenNumbers[norm];
+}
+
+String? _checkRange(String value) {
+  return _multiplicityPattern.hasMatch(value) ? value : null;
+}
+
+/// Parses one multiplicity payload into _multiplicityPattern form. Accepts
+/// the literal digit/"*" forms plus the spoken Spanish vocabulary a Deepgram
+/// transcript produces: a single value ("uno", "muchos"), "X a Y", "de X a
+/// Y", "X punto punto Y", the literal "X..Y", "X o más"/"X o mas" ("X..*"),
+/// and the idiom "cero o uno" ("0..1").
 String? _cleanMultiplicity(String value) {
-  final normalized = value.trim().replaceAll(RegExp(r'\s*\.\.\s*'), '..');
-  return _multiplicityPattern.hasMatch(normalized) ? normalized : null;
+  final trimmed = value.trim().replaceAll(RegExp(r'\s*\.\.\s*'), '..');
+  if (_multiplicityPattern.hasMatch(trimmed)) return trimmed;
+
+  final lower = trimmed.toLowerCase();
+
+  if (RegExp(r'^cero\s+o\s+uno$').hasMatch(lower)) return '0..1';
+
+  final orMore = RegExp(r'^(.+?)\s+o\s+m[aá]s$').firstMatch(lower);
+  if (orMore != null) {
+    final lo = _spokenBound(orMore.group(1)!);
+    return lo == null ? null : _checkRange('$lo..*');
+  }
+
+  final deXaY = RegExp(r'^de\s+(.+?)\s+a\s+(.+)$').firstMatch(lower);
+  if (deXaY != null) {
+    final lo = _spokenBound(deXaY.group(1)!);
+    final hi = _spokenBound(deXaY.group(2)!);
+    return lo == null || hi == null ? null : _checkRange('$lo..$hi');
+  }
+
+  final puntoPunto =
+      RegExp(r'^(.+?)\s+punto\s+punto\s+(.+)$').firstMatch(lower);
+  if (puntoPunto != null) {
+    final lo = _spokenBound(puntoPunto.group(1)!);
+    final hi = _spokenBound(puntoPunto.group(2)!);
+    return lo == null || hi == null ? null : _checkRange('$lo..$hi');
+  }
+
+  final xaY = RegExp(r'^(.+?)\s+a\s+(.+)$').firstMatch(lower);
+  if (xaY != null) {
+    final lo = _spokenBound(xaY.group(1)!);
+    final hi = _spokenBound(xaY.group(2)!);
+    return lo == null || hi == null ? null : _checkRange('$lo..$hi');
+  }
+
+  final single = _spokenBound(lower);
+  return single == null ? null : _checkRange(single);
 }
