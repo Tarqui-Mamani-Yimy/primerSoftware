@@ -10,9 +10,11 @@ class VoicePermissionException implements Exception {
 
 class VoiceTranscriptionService {
   static const modelName = 'ggml-tiny-q5_1.bin';
-  static const modelUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/'
+  static const modelUrl =
+      'https://huggingface.co/ggerganov/whisper.cpp/resolve/'
       '5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny-q5_1.bin';
-  static const modelSha256 = '818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7';
+  static const modelSha256 =
+      '818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7';
   static const WhisperModelDescriptor model = WhisperModelDescriptor(
     id: 'tiny-q5_1',
     fileName: modelName,
@@ -34,12 +36,13 @@ class VoiceTranscriptionService {
   Future<void> prepare({void Function(double?)? onDownloadProgress}) async {
     _ensureAndroid();
     final existing = await _modelManager.findCatalogModel(model);
-    final model = existing ??
+    final installedModel = existing ??
         await _downloadModel(onDownloadProgress: onDownloadProgress);
-    _engine ??= await WhisperEngine.load(model.path);
+    _engine ??= await WhisperEngine.load(installedModel.path);
   }
 
-  Future<File> _downloadModel({void Function(double?)? onDownloadProgress}) async {
+  Future<File> _downloadModel(
+      {void Function(double?)? onDownloadProgress}) async {
     await for (final progress in _modelManager.downloadCatalogModel(model)) {
       onDownloadProgress?.call(progress.fraction);
     }
@@ -48,14 +51,16 @@ class VoiceTranscriptionService {
     return downloaded;
   }
 
-  Future<void> startRecording({void Function(double?)? onDownloadProgress}) async {
+  Future<void> startRecording(
+      {void Function(double?)? onDownloadProgress}) async {
     await prepare(onDownloadProgress: onDownloadProgress);
     if (!await _recorder.requestPermission()) {
       throw const VoicePermissionException();
     }
     _samples.clear();
     final stream = await _recorder.start();
-    _recordingSubscription = stream.listen((chunk) => _samples.addAll(chunk.samples));
+    _recordingSubscription =
+        stream.listen((chunk) => _samples.addAll(chunk.samples));
   }
 
   Future<String> stopAndTranscribe() async {
@@ -86,7 +91,8 @@ class VoiceTranscriptionService {
 
   void _ensureAndroid() {
     if (!Platform.isAndroid) {
-      throw UnsupportedError('La transcripción de voz solo está disponible en Android.');
+      throw UnsupportedError(
+          'La transcripción de voz solo está disponible en Android.');
     }
   }
 }

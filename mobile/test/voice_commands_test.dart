@@ -65,5 +65,9 @@ void main() {
       parseVoiceCommand('relacionar A con B con verbo etiqueta con verbo otra'),
       isNull,
     );
+    expect(
+      parseVoiceCommand('relacionar A con B con cardinalidad origen 1+'),
+      isNull,
+    );
   });
 }

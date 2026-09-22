@@ -7,6 +7,10 @@ import 'api.dart';
 import 'models.dart';
 import 'strings.dart';
 import 'voice_transcription_service.dart';
+import 'voice_command_flow.dart';
+import 'voice_command_preview.dart';
+import 'voice_commands.dart';
+import 'uml_mutations.dart';
 import 'realtime_service.dart';
 import 'artifact_service.dart';
 
@@ -19,7 +23,9 @@ class UmlArchitectApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         title: AppStrings.appName,
-        theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo), useMaterial3: true),
+        theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+            useMaterial3: true),
         home: LoginPage(api: api),
       );
 }
@@ -38,13 +44,22 @@ class _LoginPageState extends State<LoginPage> {
   String? error;
 
   @override
-  void dispose() { email.dispose(); password.dispose(); super.dispose(); }
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    super.dispose();
+  }
 
   Future<void> submit() async {
-    setState(() { busy = true; error = null; });
+    setState(() {
+      busy = true;
+      error = null;
+    });
     try {
       await widget.api.login(email.text.trim(), password.text);
-      if (mounted) Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ProjectsPage(api: widget.api)));
+      if (mounted)
+        Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => ProjectsPage(api: widget.api)));
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     } finally {
@@ -59,18 +74,41 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                const Icon(Icons.account_tree, size: 64),
-                const SizedBox(height: 16),
-                Text(AppStrings.appName, style: Theme.of(context).textTheme.headlineMedium, textAlign: TextAlign.center),
-                const SizedBox(height: 32),
-                TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: AppStrings.email)),
-                const SizedBox(height: 12),
-                TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: AppStrings.password, hintText: AppStrings.passwordPlaceholder)),
-                if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-                const SizedBox(height: 20),
-                FilledButton(onPressed: busy ? null : submit, child: busy ? const CircularProgressIndicator(semanticsLabel: AppStrings.loggingIn) : const Text(AppStrings.login)),
-              ]),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Icon(Icons.account_tree, size: 64),
+                    const SizedBox(height: 16),
+                    Text(AppStrings.appName,
+                        style: Theme.of(context).textTheme.headlineMedium,
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 32),
+                    TextField(
+                        controller: email,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration:
+                            const InputDecoration(labelText: AppStrings.email)),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: password,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                            labelText: AppStrings.password,
+                            hintText: AppStrings.passwordPlaceholder)),
+                    if (error != null)
+                      Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(error!,
+                              style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error))),
+                    const SizedBox(height: 20),
+                    FilledButton(
+                        onPressed: busy ? null : submit,
+                        child: busy
+                            ? const CircularProgressIndicator(
+                                semanticsLabel: AppStrings.loggingIn)
+                            : const Text(AppStrings.login)),
+                  ]),
             ),
           ),
         ),
@@ -91,7 +129,10 @@ class _ProjectsPageState extends State<ProjectsPage> {
   bool actionBusy = false;
 
   @override
-  void initState() { super.initState(); future = widget.api.projects(); }
+  void initState() {
+    super.initState();
+    future = widget.api.projects();
+  }
 
   Future<void> refreshProjects() async {
     setState(() {
@@ -104,11 +145,16 @@ class _ProjectsPageState extends State<ProjectsPage> {
   String projectError(Object error, {required bool joining}) {
     if (error is ApiException) {
       if (error.statusCode == 401) return AppStrings.sessionExpired;
-      if (joining && error.statusCode == 409) return AppStrings.projectAlreadyJoined;
-      if (joining && (error.statusCode == 404 || error.statusCode == 400)) return AppStrings.projectJoinError;
-      if (!joining && error.statusCode == 400) return AppStrings.projectCreatedError;
+      if (joining && error.statusCode == 409)
+        return AppStrings.projectAlreadyJoined;
+      if (joining && (error.statusCode == 404 || error.statusCode == 400))
+        return AppStrings.projectJoinError;
+      if (!joining && error.statusCode == 400)
+        return AppStrings.projectCreatedError;
     }
-    return joining ? AppStrings.projectJoinError : AppStrings.projectCreatedError;
+    return joining
+        ? AppStrings.projectJoinError
+        : AppStrings.projectCreatedError;
   }
 
   Future<void> createProject() async {
@@ -129,35 +175,54 @@ class _ProjectsPageState extends State<ProjectsPage> {
                 controller: name,
                 autofocus: true,
                 textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(labelText: AppStrings.projectName, hintText: AppStrings.projectNamePlaceholder),
-                validator: (value) => value == null || value.trim().isEmpty ? AppStrings.projectNameRequired : null,
+                decoration: const InputDecoration(
+                    labelText: AppStrings.projectName,
+                    hintText: AppStrings.projectNamePlaceholder),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? AppStrings.projectNameRequired
+                    : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: description,
                 maxLines: 3,
-                decoration: const InputDecoration(labelText: AppStrings.projectDescription, hintText: AppStrings.projectDescriptionPlaceholder),
+                decoration: const InputDecoration(
+                    labelText: AppStrings.projectDescription,
+                    hintText: AppStrings.projectDescriptionPlaceholder),
               ),
             ]),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text(AppStrings.cancel)),
-          FilledButton(onPressed: () { if (formKey.currentState!.validate()) Navigator.pop(context, [name.text.trim(), description.text.trim()]); }, child: const Text(AppStrings.create)),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(AppStrings.cancel)),
+          FilledButton(
+              onPressed: () {
+                if (formKey.currentState!.validate())
+                  Navigator.pop(
+                      context, [name.text.trim(), description.text.trim()]);
+              },
+              child: const Text(AppStrings.create)),
         ],
       ),
     );
     name.dispose();
     description.dispose();
     if (input == null || !mounted) return;
-    setState(() { actionBusy = true; actionError = null; });
+    setState(() {
+      actionBusy = true;
+      actionError = null;
+    });
     try {
-      final project = await widget.api.createProject(input[0], description: input[1]);
+      final project =
+          await widget.api.createProject(input[0], description: input[1]);
       if (!mounted) return;
       setState(() => createdProject = project);
       await refreshProjects();
     } catch (error) {
-      if (mounted) setState(() => actionError = projectError(error, joining: false));
+      if (mounted)
+        setState(() => actionError = projectError(error, joining: false));
     } finally {
       if (mounted) setState(() => actionBusy = false);
     }
@@ -179,25 +244,40 @@ class _ProjectsPageState extends State<ProjectsPage> {
               controller: code,
               autofocus: true,
               textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(labelText: AppStrings.classroomCode, hintText: AppStrings.classroomCodePlaceholder),
-              validator: (value) => value == null || value.trim().isEmpty ? AppStrings.classroomCodeRequired : null,
+              decoration: const InputDecoration(
+                  labelText: AppStrings.classroomCode,
+                  hintText: AppStrings.classroomCodePlaceholder),
+              validator: (value) => value == null || value.trim().isEmpty
+                  ? AppStrings.classroomCodeRequired
+                  : null,
             ),
           ]),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text(AppStrings.cancel)),
-          FilledButton(onPressed: () { if (formKey.currentState!.validate()) Navigator.pop(context, code.text.trim().toUpperCase()); }, child: const Text(AppStrings.join)),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(AppStrings.cancel)),
+          FilledButton(
+              onPressed: () {
+                if (formKey.currentState!.validate())
+                  Navigator.pop(context, code.text.trim().toUpperCase());
+              },
+              child: const Text(AppStrings.join)),
         ],
       ),
     );
     code.dispose();
     if (input == null || !mounted) return;
-    setState(() { actionBusy = true; actionError = null; });
+    setState(() {
+      actionBusy = true;
+      actionError = null;
+    });
     try {
       await widget.api.joinProject(input);
       await refreshProjects();
     } catch (error) {
-      if (mounted) setState(() => actionError = projectError(error, joining: true));
+      if (mounted)
+        setState(() => actionError = projectError(error, joining: true));
     } finally {
       if (mounted) setState(() => actionBusy = false);
     }
@@ -209,29 +289,70 @@ class _ProjectsPageState extends State<ProjectsPage> {
         body: FutureBuilder<List<Project>>(
           future: future,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return Center(child: Text('${AppStrings.couldNotLoadProjects}: ${snapshot.error}'));
+            if (snapshot.connectionState != ConnectionState.done)
+              return const Center(child: CircularProgressIndicator());
+            if (snapshot.hasError)
+              return Center(
+                  child: Text(
+                      '${AppStrings.couldNotLoadProjects}: ${snapshot.error}'));
             final projects = snapshot.data ?? [];
             return ListView(
               padding: const EdgeInsets.all(12),
               children: [
-                if (actionError != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(actionError!, semanticsLabel: actionError, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-                if (createdProject != null) Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.check_circle),
-                    title: const Text(AppStrings.projectCreated),
-                    subtitle: Text('${AppStrings.shareClassroomCode}\n${createdProject!.accessCode ?? ''}', semanticsLabel: '${AppStrings.shareClassroomCode} ${createdProject!.accessCode ?? ''}'),
+                if (actionError != null)
+                  Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(actionError!,
+                          semanticsLabel: actionError,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error))),
+                if (createdProject != null)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.check_circle),
+                      title: const Text(AppStrings.projectCreated),
+                      subtitle: Text(
+                          '${AppStrings.shareClassroomCode}\n${createdProject!.accessCode ?? ''}',
+                          semanticsLabel:
+                              '${AppStrings.shareClassroomCode} ${createdProject!.accessCode ?? ''}'),
+                    ),
                   ),
-                ),
                 Row(children: [
-                  Expanded(child: FilledButton.icon(onPressed: actionBusy ? null : createProject, icon: const Icon(Icons.add), label: const Text(AppStrings.newProject))),
+                  Expanded(
+                      child: FilledButton.icon(
+                          onPressed: actionBusy ? null : createProject,
+                          icon: const Icon(Icons.add),
+                          label: const Text(AppStrings.newProject))),
                   const SizedBox(width: 12),
-                  Expanded(child: OutlinedButton.icon(onPressed: actionBusy ? null : joinProject, icon: const Icon(Icons.group_add), label: const Text(AppStrings.joinProject))),
+                  Expanded(
+                      child: OutlinedButton.icon(
+                          onPressed: actionBusy ? null : joinProject,
+                          icon: const Icon(Icons.group_add),
+                          label: const Text(AppStrings.joinProject))),
                 ]),
                 const SizedBox(height: 16),
-                if (projects.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text(AppStrings.noProjects)))
-                else ...projects.map((project) => Card(child: ListTile(title: Text(project.name), subtitle: Text(project.description), trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DiagramsPage(api: widget.api, project: project))))),
+                if (projects.isEmpty)
+                  const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: Text(AppStrings.noProjects)))
+                else
+                  ...projects.map(
+                    (project) => Card(
+                      child: ListTile(
+                        title: Text(project.name),
+                        subtitle: Text(project.description),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => DiagramsPage(
+                              api: widget.api,
+                              project: project,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             );
           },
@@ -250,34 +371,67 @@ class DiagramsPage extends StatefulWidget {
 class _DiagramsPageState extends State<DiagramsPage> {
   late Future<List<DiagramSummary>> future;
   @override
-  void initState() { super.initState(); future = widget.api.diagrams(widget.project.id); }
-  Future<void> create() async {
-    final doc = await widget.api.createDiagram(widget.project.id, UmlDocument(name: AppStrings.newDiagram));
-    if (mounted) Navigator.of(context).push(MaterialPageRoute(builder: (_) => WorkspacePage(api: widget.api, project: widget.project, document: doc)));
+  void initState() {
+    super.initState();
+    future = widget.api.diagrams(widget.project.id);
   }
+
+  Future<void> create() async {
+    final doc = await widget.api.createDiagram(
+        widget.project.id, UmlDocument(name: AppStrings.newDiagram));
+    if (mounted)
+      Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => WorkspacePage(
+              api: widget.api, project: widget.project, document: doc)));
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(widget.project.name, semanticsLabel: '${AppStrings.diagrams}: ${widget.project.name}')),
-        floatingActionButton: FloatingActionButton(onPressed: create, child: const Icon(Icons.add)),
+        appBar: AppBar(
+            title: Text(widget.project.name,
+                semanticsLabel:
+                    '${AppStrings.diagrams}: ${widget.project.name}')),
+        floatingActionButton: FloatingActionButton(
+            onPressed: create, child: const Icon(Icons.add)),
         body: FutureBuilder<List<DiagramSummary>>(
           future: future,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return Center(child: Text('${AppStrings.couldNotLoadDiagrams}: ${snapshot.error}'));
+            if (snapshot.connectionState != ConnectionState.done)
+              return const Center(child: CircularProgressIndicator());
+            if (snapshot.hasError)
+              return Center(
+                  child: Text(
+                      '${AppStrings.couldNotLoadDiagrams}: ${snapshot.error}'));
             final diagrams = snapshot.data ?? [];
-            if (diagrams.isEmpty) return const Center(child: Text(AppStrings.noDiagrams));
-            return ListView(children: diagrams.map((diagram) => ListTile(title: Text(diagram.name), trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
-                final doc = await widget.api.diagram(widget.project.id, diagram.id);
-                if (mounted) Navigator.of(context).push(MaterialPageRoute(builder: (_) => WorkspacePage(api: widget.api, project: widget.project, document: doc)));
-              })).toList());
+            if (diagrams.isEmpty)
+              return const Center(child: Text(AppStrings.noDiagrams));
+            return ListView(
+                children: diagrams
+                    .map((diagram) => ListTile(
+                        title: Text(diagram.name),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          final doc = await widget.api
+                              .diagram(widget.project.id, diagram.id);
+                          if (mounted)
+                            Navigator.of(context).push(MaterialPageRoute(
+                                builder: (_) => WorkspacePage(
+                                    api: widget.api,
+                                    project: widget.project,
+                                    document: doc)));
+                        }))
+                    .toList());
           },
         ),
       );
 }
 
 class WorkspacePage extends StatefulWidget {
-  const WorkspacePage({super.key, required this.api, required this.project, required this.document});
+  const WorkspacePage(
+      {super.key,
+      required this.api,
+      required this.project,
+      required this.document});
   final ApiClient api;
   final Project project;
   final UmlDocument document;
@@ -297,6 +451,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
   bool voiceRecording = false;
   String voiceStatus = '';
   String voiceText = '';
+  VoiceMutationPreview? voicePreview;
+  UmlDocument? lastVoiceSnapshot;
   DiagramRealtimeService? realtime;
   StreamSubscription<RealtimeEvent>? realtimeSubscription;
   final List<RealtimeMember> collaborators = [];
@@ -331,7 +487,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
   Future<void> toggleVoiceTranscription() async {
     if (voiceBusy) return;
     if (!voiceRecording) {
-      setState(() { voiceBusy = true; voiceStatus = AppStrings.preparingVoiceModel; voiceText = ''; });
+      setState(() {
+        voiceBusy = true;
+        voiceStatus = AppStrings.preparingVoiceModel;
+        voiceText = '';
+        voicePreview = null;
+      });
       try {
         await voiceService.startRecording(onDownloadProgress: (progress) {
           if (!mounted) return;
@@ -339,9 +500,14 @@ class _WorkspacePageState extends State<WorkspacePage> {
               ? AppStrings.downloadingVoiceModel
               : '${AppStrings.downloadingVoiceModel} ${(progress * 100).round()}%');
         });
-        if (mounted) setState(() { voiceRecording = true; voiceStatus = AppStrings.recordingVoice; });
+        if (mounted)
+          setState(() {
+            voiceRecording = true;
+            voiceStatus = AppStrings.recordingVoice;
+          });
       } on VoicePermissionException {
-        if (mounted) setState(() => voiceStatus = AppStrings.voicePermissionDenied);
+        if (mounted)
+          setState(() => voiceStatus = AppStrings.voicePermissionDenied);
       } catch (_) {
         if (mounted) setState(() => voiceStatus = AppStrings.voiceModelFailed);
       } finally {
@@ -351,28 +517,108 @@ class _WorkspacePageState extends State<WorkspacePage> {
       return;
     }
 
-    setState(() { voiceBusy = true; voiceStatus = AppStrings.transcribingVoice; });
+    setState(() {
+      voiceBusy = true;
+      voiceStatus = AppStrings.transcribingVoice;
+    });
     try {
       final text = await voiceService.stopAndTranscribe();
-      if (mounted) setState(() {
-        voiceRecording = false;
-        voiceText = text;
-        voiceStatus = text.isEmpty ? AppStrings.voiceEmpty : AppStrings.voiceReady;
-      });
+      if (mounted)
+        setState(() {
+          voiceRecording = false;
+          voiceText = text;
+          voiceStatus =
+              text.isEmpty ? AppStrings.voiceEmpty : AppStrings.voiceReady;
+          voicePreview = text.isEmpty ? null : _previewTranscript(text);
+        });
     } catch (_) {
-      if (mounted) setState(() { voiceRecording = false; voiceStatus = AppStrings.voiceFailed; });
+      if (mounted)
+        setState(() {
+          voiceRecording = false;
+          voiceStatus = AppStrings.voiceFailed;
+        });
     } finally {
       if (mounted) setState(() => voiceBusy = false);
     }
   }
 
+  VoiceMutationPreview? _previewTranscript(String transcript) {
+    final command = parseVoiceCommand(transcript);
+    if (command == null) {
+      voiceStatus = AppStrings.voiceCommandInvalid;
+      return null;
+    }
+    if (command.kind == VoiceCommandKind.undoVoiceCommand) {
+      final snapshot = lastVoiceSnapshot;
+      if (snapshot == null) {
+        voiceStatus = AppStrings.voiceCommandUndoUnavailable;
+        return null;
+      }
+      voiceStatus = AppStrings.voiceReady;
+      return VoiceMutationPreview(
+        command: command,
+        document: cloneUmlDocument(snapshot),
+      );
+    }
+    final preview = previewVoiceCommand(document, command);
+    voiceStatus = preview == null
+        ? AppStrings.voiceCommandInvalid
+        : AppStrings.voiceReady;
+    return preview;
+  }
+
+  void cancelVoicePreview() {
+    setState(() {
+      voicePreview = null;
+      voiceStatus = AppStrings.voiceCommandCancelled;
+    });
+  }
+
+  void confirmVoicePreview() {
+    final preview = voicePreview;
+    if (preview == null) return;
+    setState(() {
+      if (preview.command.kind == VoiceCommandKind.undoVoiceCommand) {
+        document = cloneUmlDocument(preview.document);
+        lastVoiceSnapshot = null;
+      } else {
+        lastVoiceSnapshot = cloneUmlDocument(document);
+        document = cloneUmlDocument(preview.document);
+      }
+      voicePreview = null;
+      voiceStatus = AppStrings.voiceCommandApplied;
+    });
+    scheduleAutosave();
+  }
+
+  String _voicePreviewDescription(VoiceCommand command) {
+    switch (command.kind) {
+      case VoiceCommandKind.createClass:
+        return 'Crear clase ${command.name}';
+      case VoiceCommandKind.addAttribute:
+        return 'Agregar atributo ${command.name} a ${command.className}';
+      case VoiceCommandKind.addMethod:
+        return 'Agregar método ${command.name} a ${command.className}';
+      case VoiceCommandKind.createRelationship:
+        return 'Relacionar ${command.sourceName} con ${command.targetName}';
+      case VoiceCommandKind.undoVoiceCommand:
+        return AppStrings.voiceCommandUndoPreview;
+    }
+  }
+
+  void _invalidateVoiceUndo() {
+    lastVoiceSnapshot = null;
+  }
+
   Future<void> connectRealtime() async {
     final id = document.id;
     if (id == null) return;
-    realtime = DiagramRealtimeService(api: widget.api, projectId: widget.project.id, diagramId: id);
+    realtime = DiagramRealtimeService(
+        api: widget.api, projectId: widget.project.id, diagramId: id);
     realtimeSubscription = realtime!.events.listen((event) {
       if (!mounted) return;
       if (event is RealtimeSnapshot) {
+        _invalidateVoiceUndo();
         setState(() {
           if (dirty) {
             conflictRemote = event.document;
@@ -384,14 +630,18 @@ class _WorkspacePageState extends State<WorkspacePage> {
             document.version = event.version;
             realtimeStatus = AppStrings.realtimeConnected;
           }
-          collaborators..clear()..addAll(event.members);
+          collaborators
+            ..clear()
+            ..addAll(event.members);
         });
       } else if (event is RealtimePresenceChanged) {
         setState(() {
-          collaborators.removeWhere((member) => member.userId == event.member.userId);
+          collaborators
+              .removeWhere((member) => member.userId == event.member.userId);
           if (event.joined) collaborators.add(event.member);
         });
-      } else if (event is RealtimeDiagramChanged && event.reviewNumber > document.reviewNumber) {
+      } else if (event is RealtimeDiagramChanged &&
+          event.reviewNumber > document.reviewNumber) {
         unawaited(_applyRemoteChange(event));
       } else if (event is RealtimeErrorEvent) {
         setState(() => realtimeStatus = AppStrings.realtimeDisconnected);
@@ -400,9 +650,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
     try {
       setState(() => realtimeBusy = true);
       await realtime!.connect();
-      if (mounted) setState(() => realtimeStatus = AppStrings.realtimeConnected);
+      if (mounted)
+        setState(() => realtimeStatus = AppStrings.realtimeConnected);
     } catch (_) {
-      if (mounted) setState(() => realtimeStatus = AppStrings.realtimeDisconnected);
+      if (mounted)
+        setState(() => realtimeStatus = AppStrings.realtimeDisconnected);
     } finally {
       if (mounted) setState(() => realtimeBusy = false);
     }
@@ -412,6 +664,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     try {
       final remote = await widget.api.diagram(widget.project.id, document.id!);
       if (!mounted || remote.reviewNumber <= document.reviewNumber) return;
+      _invalidateVoiceUndo();
       setState(() {
         if (dirty) {
           conflictRemote = remote;
@@ -431,9 +684,14 @@ class _WorkspacePageState extends State<WorkspacePage> {
     if (document.id == null || generatingArtifact) return;
     setState(() => generatingArtifact = true);
     try {
-      final bytes = await widget.api.generateArtifact(widget.project.id, document.id!, document);
+      final bytes = await widget.api
+          .generateArtifact(widget.project.id, document.id!, document);
       final file = await ArtifactService().save(bytes);
-      if (mounted) setState(() { generatedArtifact = file; saveStatus = AppStrings.backendReady; });
+      if (mounted)
+        setState(() {
+          generatedArtifact = file;
+          saveStatus = AppStrings.backendReady;
+        });
     } catch (_) {
       if (mounted) setState(() => saveStatus = AppStrings.backendFailed);
     } finally {
@@ -447,22 +705,34 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Future<void> deleteClass(UmlClass umlClass) async {
-    final count = document.relationships.where((relationship) => relationship.sourceId == umlClass.id || relationship.targetId == umlClass.id).length;
+    final count = document.relationships
+        .where((relationship) =>
+            relationship.sourceId == umlClass.id ||
+            relationship.targetId == umlClass.id)
+        .length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text(AppStrings.deleteClass),
-        content: Text('${AppStrings.deleteClassConfirm}\n${AppStrings.deleteClassRelations}: $count'),
+        content: Text(
+            '${AppStrings.deleteClassConfirm}\n${AppStrings.deleteClassRelations}: $count'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(AppStrings.cancel)),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text(AppStrings.deleteClassConfirmAction)),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text(AppStrings.cancel)),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text(AppStrings.deleteClassConfirmAction)),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
+    _invalidateVoiceUndo();
     setState(() {
       document.classes.removeWhere((item) => item.id == umlClass.id);
-      document.relationships.removeWhere((relationship) => relationship.sourceId == umlClass.id || relationship.targetId == umlClass.id);
+      document.relationships.removeWhere((relationship) =>
+          relationship.sourceId == umlClass.id ||
+          relationship.targetId == umlClass.id);
     });
     scheduleAutosave();
   }
@@ -473,9 +743,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
   Future<void> flushOnExit() async {
     if (!dirty || document.id == null) return;
     autosaveTimer?.cancel();
-    document.name = name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
+    document.name =
+        name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
     try {
-      document = await widget.api.updateDiagram(widget.project.id, document.id!, document);
+      document = await widget.api
+          .updateDiagram(widget.project.id, document.id!, document);
       dirty = false;
     } catch (_) {
       // Swallow the failure: the entry banner already explains what was lost.
@@ -491,20 +763,26 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   Future<void> save() async {
     if (document.id == null) return;
-    document.name = name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
+    document.name =
+        name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
     if (saving) return;
-    setState(() { saving = true; saveStatus = AppStrings.saving; });
+    setState(() {
+      saving = true;
+      saveStatus = AppStrings.saving;
+    });
     dirty = true;
     try {
-      document = await widget.api.updateDiagram(widget.project.id, document.id!, document);
+      document = await widget.api
+          .updateDiagram(widget.project.id, document.id!, document);
       dirty = false;
       if (mounted) setState(() => saveStatus = AppStrings.saved);
     } on ApiException catch (error) {
       if (error.statusCode == 409) {
-        if (mounted) setState(() {
-          saveStatus = AppStrings.persistenceConflict;
-          conflictRemote = error.current ?? document;
-        });
+        if (mounted)
+          setState(() {
+            saveStatus = AppStrings.persistenceConflict;
+            conflictRemote = error.current ?? document;
+          });
         return;
       }
       if (mounted) setState(() => saveStatus = AppStrings.saveFailed);
@@ -514,7 +792,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
       await Future<void>.delayed(const Duration(milliseconds: 600));
       if (!dirty || document.id == null) return;
       try {
-        document = await widget.api.updateDiagram(widget.project.id, document.id!, document);
+        document = await widget.api
+            .updateDiagram(widget.project.id, document.id!, document);
         dirty = false;
         if (mounted) setState(() => saveStatus = AppStrings.saved);
       } catch (_) {
@@ -528,20 +807,26 @@ class _WorkspacePageState extends State<WorkspacePage> {
   Future<void> createCheckpoint(String message) async {
     if (document.id == null) return;
     autosaveTimer?.cancel();
-    setState(() { saving = true; saveStatus = AppStrings.checkpointBusy; });
-    document.name = name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
+    setState(() {
+      saving = true;
+      saveStatus = AppStrings.checkpointBusy;
+    });
+    document.name =
+        name.text.trim().isEmpty ? 'Untitled diagram' : name.text.trim();
     try {
-      final created = await widget.api.checkpointDiagram(widget.project.id, document.id!, document, message.isEmpty ? null : message);
+      final created = await widget.api.checkpointDiagram(widget.project.id,
+          document.id!, document, message.isEmpty ? null : message);
       document.version = created.document?.version ?? (document.version + 1);
       document.reviewNumber = created.reviewNumber;
       dirty = false;
       if (mounted) setState(() => saveStatus = AppStrings.checkpointSucceeded);
     } on ApiException catch (error) {
       if (error.statusCode == 409) {
-        if (mounted) setState(() {
-          saveStatus = AppStrings.checkpointConflict;
-          conflictRemote = error.current ?? document;
-        });
+        if (mounted)
+          setState(() {
+            saveStatus = AppStrings.checkpointConflict;
+            conflictRemote = error.current ?? document;
+          });
         return;
       }
       if (mounted) setState(() => saveStatus = AppStrings.saveFailed);
@@ -556,6 +841,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     final remote = conflictRemote;
     if (remote == null) return;
     if (keepMine) {
+      _invalidateVoiceUndo();
       // Accept the cost: bump our baseline to the server's version, then let
       // autosave resume. Subsequent PUTs will succeed but the latest
       // checkpoint will be overwritten; the user is on the hook for that.
@@ -565,6 +851,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       dirty = false;
       scheduleAutosave();
     } else {
+      _invalidateVoiceUndo();
       // Discard local edits: re-apply the server document verbatim and clear
       // the dirty flag.
       setState(() {
@@ -579,7 +866,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   void addClass() {
-    setState(() => document.classes.add(UmlClass(id: DateTime.now().microsecondsSinceEpoch.toString(), name: 'NewClass')));
+    _invalidateVoiceUndo();
+    setState(() => document.classes.add(UmlClass(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: 'NewClass')));
     scheduleAutosave();
   }
 
@@ -594,11 +884,14 @@ class _WorkspacePageState extends State<WorkspacePage> {
           shrinkWrap: true,
           padding: const EdgeInsets.all(16),
           children: [
-            Text(AppStrings.versionHistory, style: Theme.of(context).textTheme.titleLarge),
-            if (versions.isEmpty) const ListTile(title: Text(AppStrings.noVersions)),
+            Text(AppStrings.versionHistory,
+                style: Theme.of(context).textTheme.titleLarge),
+            if (versions.isEmpty)
+              const ListTile(title: Text(AppStrings.noVersions)),
             ...versions.map((version) {
               final timestamp = version.createdAt ?? '-';
-              final author = version.createdBy.isEmpty ? 'anónimo' : version.createdBy;
+              final author =
+                  version.createdBy.isEmpty ? 'anónimo' : version.createdBy;
               final note = version.message ?? '';
               return ListTile(
                 title: Text('Versión ${version.versionNumber} · $author'),
@@ -630,8 +923,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   Future<void> _restoreVersion(int versionNumber) async {
     try {
-      final restored = await widget.api.restore(widget.project.id, document.id!, versionNumber);
+      final restored = await widget.api
+          .restore(widget.project.id, document.id!, versionNumber);
       if (!mounted) return;
+      _invalidateVoiceUndo();
       setState(() {
         document = restored;
         name.text = restored.name;
@@ -671,13 +966,20 @@ class _WorkspacePageState extends State<WorkspacePage> {
               controller: controller,
               autofocus: true,
               maxLines: 3,
-              decoration: const InputDecoration(labelText: AppStrings.checkpointMessageLabel, hintText: AppStrings.checkpointMessagePlaceholder),
+              decoration: const InputDecoration(
+                  labelText: AppStrings.checkpointMessageLabel,
+                  hintText: AppStrings.checkpointMessagePlaceholder),
             ),
           ]),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, null), child: const Text(AppStrings.cancel)),
-          FilledButton(onPressed: busy ? null : () => Navigator.pop(context, controller.text), child: const Text(AppStrings.checkpointSubmit)),
+          TextButton(
+              onPressed: () => Navigator.pop(context, null),
+              child: const Text(AppStrings.cancel)),
+          FilledButton(
+              onPressed:
+                  busy ? null : () => Navigator.pop(context, controller.text),
+              child: const Text(AppStrings.checkpointSubmit)),
         ],
       ),
     );
@@ -701,8 +1003,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
         title: const Text(AppStrings.exitChangesLost),
         content: const Text(AppStrings.exitWithoutFlush),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(AppStrings.keepEditing)),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text(AppStrings.discard)),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text(AppStrings.keepEditing)),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text(AppStrings.discard)),
         ],
       ),
     );
@@ -729,8 +1035,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
               title: const Text(AppStrings.exitChangesLost),
               content: const Text(AppStrings.exitWithoutFlush),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(AppStrings.keepEditing)),
-                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text(AppStrings.discard)),
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text(AppStrings.keepEditing)),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text(AppStrings.discard)),
               ],
             ),
           );
@@ -746,110 +1056,212 @@ class _WorkspacePageState extends State<WorkspacePage> {
         },
         child: Scaffold(
           appBar: AppBar(title: const Text(AppStrings.workspace), actions: [
-            IconButton(onPressed: saving ? null : showVersions, icon: const Icon(Icons.history), tooltip: AppStrings.versionHistory),
-            IconButton(onPressed: saving ? null : promptCheckpoint, icon: const Icon(Icons.bookmark_add), tooltip: AppStrings.checkpoint),
-            IconButton(onPressed: saving ? null : save, icon: saving ? const CircularProgressIndicator(semanticsLabel: AppStrings.saving) : const Icon(Icons.save), tooltip: AppStrings.save),
+            IconButton(
+                onPressed: saving ? null : showVersions,
+                icon: const Icon(Icons.history),
+                tooltip: AppStrings.versionHistory),
+            IconButton(
+                onPressed: saving ? null : promptCheckpoint,
+                icon: const Icon(Icons.bookmark_add),
+                tooltip: AppStrings.checkpoint),
+            IconButton(
+                onPressed: saving ? null : save,
+                icon: saving
+                    ? const CircularProgressIndicator(
+                        semanticsLabel: AppStrings.saving)
+                    : const Icon(Icons.save),
+                tooltip: AppStrings.save),
           ]),
           body: Stack(children: [
             ListView(padding: const EdgeInsets.all(16), children: [
-              TextField(controller: name, onChanged: (_) => scheduleAutosave(), decoration: const InputDecoration(labelText: AppStrings.diagramName)),
-              Padding(padding: const EdgeInsets.only(top: 8), child: Text(saveStatus, key: const Key('workspace.status'))),
-              Padding(padding: const EdgeInsets.only(top: 8), child: Text(realtimeStatus, key: const Key('workspace.realtime.status'))),
+              TextField(
+                controller: name,
+                onChanged: (_) {
+                  _invalidateVoiceUndo();
+                  scheduleAutosave();
+                },
+                decoration:
+                    const InputDecoration(labelText: AppStrings.diagramName),
+              ),
+              Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(saveStatus, key: const Key('workspace.status'))),
+              Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(realtimeStatus,
+                      key: const Key('workspace.realtime.status'))),
               if (collaborators.isNotEmpty)
-                Card(child: ListTile(
+                Card(
+                    child: ListTile(
                   leading: const Icon(Icons.people),
                   title: const Text(AppStrings.collaborators),
-                  subtitle: Text(collaborators.map((member) => member.displayName).join(', ')),
+                  subtitle: Text(collaborators
+                      .map((member) => member.displayName)
+                      .join(', ')),
                 )),
               Row(children: [
-                Expanded(child: FilledButton.icon(
+                Expanded(
+                    child: FilledButton.icon(
                   onPressed: generatingArtifact ? null : generateBackend,
-                  icon: generatingArtifact ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator()) : const Icon(Icons.archive),
-                  label: Text(generatingArtifact ? AppStrings.generatingBackend : AppStrings.generateBackend),
+                  icon: generatingArtifact
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator())
+                      : const Icon(Icons.archive),
+                  label: Text(generatingArtifact
+                      ? AppStrings.generatingBackend
+                      : AppStrings.generateBackend),
                 )),
                 if (generatedArtifact != null) ...[
                   const SizedBox(width: 8),
-                  IconButton(onPressed: shareBackend, icon: const Icon(Icons.share), tooltip: AppStrings.shareBackend),
+                  IconButton(
+                      onPressed: shareBackend,
+                      icon: const Icon(Icons.share),
+                      tooltip: AppStrings.shareBackend),
                 ],
               ]),
               const SizedBox(height: 16),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    Text(AppStrings.voiceTranscription, style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    const Text(AppStrings.voiceTranscriptionHelp),
-                    if (voiceStatus.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(voiceStatus, key: const Key('workspace.voice.status'))),
-                    if (voiceText.isNotEmpty) Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Semantics(
-                        label: AppStrings.voiceTranscription,
-                        value: voiceText,
-                        child: InputDecorator(
-                          decoration: const InputDecoration(labelText: 'Texto transcripto'),
-                          child: SelectableText(voiceText),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(AppStrings.voiceTranscription,
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        const Text(AppStrings.voiceTranscriptionHelp),
+                        if (voiceStatus.isNotEmpty)
+                          Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(voiceStatus,
+                                  key: const Key('workspace.voice.status'))),
+                        if (voiceText.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Semantics(
+                              label: AppStrings.voiceTranscription,
+                              value: voiceText,
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                    labelText: 'Texto transcripto'),
+                                child: SelectableText(voiceText),
+                              ),
+                            ),
+                          ),
+                        if (voicePreview != null)
+                          VoiceCommandPreviewPanel(
+                            transcript: voiceText,
+                            description:
+                                _voicePreviewDescription(voicePreview!.command),
+                            onConfirm: confirmVoicePreview,
+                            onCancel: cancelVoicePreview,
+                          ),
+                        const SizedBox(height: 8),
+                        FilledButton.icon(
+                          onPressed:
+                              voiceBusy ? null : toggleVoiceTranscription,
+                          icon: Icon(voiceRecording ? Icons.stop : Icons.mic),
+                          label: Text(voiceRecording
+                              ? AppStrings.stopAndTranscribe
+                              : AppStrings.recordVoice),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton.icon(
-                      onPressed: voiceBusy ? null : toggleVoiceTranscription,
-                      icon: Icon(voiceRecording ? Icons.stop : Icons.mic),
-                      label: Text(voiceRecording ? AppStrings.stopAndTranscribe : AppStrings.recordVoice),
-                    ),
-                  ]),
+                      ]),
                 ),
               ),
               const SizedBox(height: 8),
-              FilledButton.icon(onPressed: addClass, icon: const Icon(Icons.add), label: const Text(AppStrings.addClass)),
+              FilledButton.icon(
+                  onPressed: addClass,
+                  icon: const Icon(Icons.add),
+                  label: const Text(AppStrings.addClass)),
               const SizedBox(height: 8),
-              ...document.classes.map((umlClass) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
-                TextFormField(
-                  decoration: const InputDecoration(labelText: AppStrings.className, prefixIcon: Icon(Icons.class_)),
-                  initialValue: umlClass.name,
-                  onChanged: (value) { umlClass.name = value; scheduleAutosave(); },
-                ),
-                SwitchListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(AppStrings.associationClass, style: TextStyle(fontSize: 13)),
-                  value: umlClass.isAssociationClass,
-                  onChanged: (value) { umlClass.isAssociationClass = value; scheduleAutosave(); },
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: () => deleteClass(umlClass),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text(AppStrings.deleteClass),
+              ...document.classes.map((umlClass) => Card(
+                  child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(children: [
+                        TextFormField(
+                          decoration: const InputDecoration(
+                              labelText: AppStrings.className,
+                              prefixIcon: Icon(Icons.class_)),
+                          initialValue: umlClass.name,
+                          onChanged: (value) {
+                            _invalidateVoiceUndo();
+                            umlClass.name = value;
+                            scheduleAutosave();
+                          },
+                        ),
+                        SwitchListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text(AppStrings.associationClass,
+                              style: TextStyle(fontSize: 13)),
+                          value: umlClass.isAssociationClass,
+                          onChanged: (value) {
+                            _invalidateVoiceUndo();
+                            umlClass.isAssociationClass = value;
+                            scheduleAutosave();
+                          },
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () => deleteClass(umlClass),
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text(AppStrings.deleteClass),
+                          ),
+                        ),
+                      ])))),
+              if (document.classes.isEmpty)
+                const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(AppStrings.addClassHint)),
+            ]),
+            if (conflictRemote != null)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                        color: const Color(0xFFB00020),
+                        borderRadius: BorderRadius.circular(8)),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(AppStrings.checkpointConflict,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 6),
+                          Text(
+                              'Local: ${document.name} (v${document.version}) — Remoto: ${conflictRemote!.name} (v${conflictRemote!.version})',
+                              style: const TextStyle(color: Colors.white)),
+                          const SizedBox(height: 8),
+                          Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                TextButton(
+                                    onPressed: () =>
+                                        resolveConflict(keepMine: true),
+                                    child: Text(
+                                        AppStrings.checkpointConflictKeepMine,
+                                        style: const TextStyle(
+                                            color: Colors.white))),
+                                FilledButton(
+                                    onPressed: () =>
+                                        resolveConflict(keepMine: false),
+                                    child: const Text(
+                                        AppStrings.checkpointConflictReload)),
+                              ]),
+                        ]),
                   ),
                 ),
-              ])))),
-              if (document.classes.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text(AppStrings.addClassHint)),
-            ]),
-            if (conflictRemote != null) Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: const Color(0xFFB00020), borderRadius: BorderRadius.circular(8)),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                    Text(AppStrings.checkpointConflict, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 6),
-                    Text('Local: ${document.name} (v${document.version}) — Remoto: ${conflictRemote!.name} (v${conflictRemote!.version})', style: const TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                      TextButton(onPressed: () => resolveConflict(keepMine: true), child: Text(AppStrings.checkpointConflictKeepMine, style: const TextStyle(color: Colors.white))),
-                      FilledButton(onPressed: () => resolveConflict(keepMine: false), child: const Text(AppStrings.checkpointConflictReload)),
-                    ]),
-                  ]),
-                ),
               ),
-            ),
           ]),
         ),
       );

@@ -3,6 +3,19 @@ import 'package:ai_uml_architect_mobile/uml_mutations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('creates a class without mutating the input', () {
+    final original = _document();
+    final updated = createUmlClass(
+      original,
+      classId: 'invoice',
+      name: 'Invoice',
+    );
+
+    expect(updated, isNotNull);
+    expect(updated!.classes.map((item) => item.name), contains('Invoice'));
+    expect(original.classes, hasLength(2));
+  });
+
   test('clone creates a detached document and preserves baselines', () {
     final original = _document();
     final copy = cloneUmlDocument(original);

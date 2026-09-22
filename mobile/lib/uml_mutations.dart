@@ -4,6 +4,25 @@ import 'models.dart';
 UmlDocument cloneUmlDocument(UmlDocument document) =>
     UmlDocument.fromJson(document.toJson());
 
+/// Adds a class to a detached document, or returns null for invalid or
+/// duplicate requests without changing [document].
+UmlDocument? createUmlClass(
+  UmlDocument document, {
+  required String classId,
+  required String name,
+}) {
+  if (!_validText(classId) ||
+      !_validText(name) ||
+      document.classes.any(
+        (umlClass) => umlClass.id == classId || _sameName(umlClass.name, name),
+      )) {
+    return null;
+  }
+  final next = cloneUmlDocument(document);
+  next.classes.add(UmlClass(id: classId.trim(), name: name.trim()));
+  return next;
+}
+
 /// Adds an attribute to exactly one class, or returns null without changing
 /// [document] when the target or request is invalid.
 UmlDocument? addUmlAttribute(
@@ -149,9 +168,8 @@ UmlDocument? deleteUmlClass(UmlDocument document, {required String className}) {
         relationship.sourceId == target.id ||
         relationship.targetId == target.id,
   );
-  final remainingRelationshipIds = next.relationships
-      .map((relationship) => relationship.id)
-      .toSet();
+  final remainingRelationshipIds =
+      next.relationships.map((relationship) => relationship.id).toSet();
   for (var index = 0; index < next.classes.length; index++) {
     final umlClass = next.classes[index];
     if (umlClass.attachedRelationshipId != null &&
@@ -187,13 +205,13 @@ bool _sameName(String left, String right) =>
 bool _validText(String value) => value.trim().isNotEmpty;
 
 bool _validRelationshipType(String value) => const {
-  'association',
-  'aggregation',
-  'composition',
-  'generalization',
-  'realization',
-  'dependency',
-}.contains(value);
+      'association',
+      'aggregation',
+      'composition',
+      'generalization',
+      'realization',
+      'dependency',
+    }.contains(value);
 
 final _multiplicityPattern = RegExp(r'^\s*(\d+|\*)\s*(\.\.\s*(\d+|\*))?\s*$');
 

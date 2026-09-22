@@ -53,7 +53,7 @@ const _methodPattern =
     r'^(?:agregar|añadir)\s+método\s+(.+?)\s+de\s+retorno\s+(.+?)\s+a\s+(.+)$';
 final _namePattern = RegExp(r"^[\p{L}\p{N}][\p{L}\p{N}' -]*$", unicode: true);
 final _multiplicityPattern = RegExp(
-  r'^(?:\d+|\*|\d+\+)(?:\.\.(?:\d+|\*|\d+\+))?$',
+  r'^(?:\d+|\*)(?:\.\.(?:\d+|\*))?$',
 );
 
 VoiceCommand? parseVoiceCommand(String transcript) {
@@ -126,9 +126,8 @@ VoiceCommand? _parseRelationship(String text) {
     caseSensitive: false,
   );
   final markers = markerPattern.allMatches(rest).toList();
-  final targetRaw = markers.isEmpty
-      ? rest
-      : rest.substring(0, markers.first.start);
+  final targetRaw =
+      markers.isEmpty ? rest : rest.substring(0, markers.first.start);
   final targetName = _cleanName(targetRaw);
   if (targetName == null) return null;
 
@@ -140,14 +139,11 @@ VoiceCommand? _parseRelationship(String text) {
   var hasLabel = false;
 
   for (var index = 0; index < markers.length; index++) {
-    final marker = markers[index]
-        .group(1)!
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), ' ');
+    final marker =
+        markers[index].group(1)!.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
     final start = markers[index].end;
-    final end = index + 1 < markers.length
-        ? markers[index + 1].start
-        : rest.length;
+    final end =
+        index + 1 < markers.length ? markers[index + 1].start : rest.length;
     final payload = rest.substring(start, end).trim();
     if (marker == 'como') {
       if (hasType) return null;
