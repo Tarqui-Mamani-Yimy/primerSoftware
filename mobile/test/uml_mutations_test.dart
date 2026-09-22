@@ -71,6 +71,58 @@ void main() {
     expect(original.relationships, isEmpty);
   });
 
+  test('rejects an identical relationship without mutating input', () {
+    final original = _document(
+      relationships: const [
+        UmlRelationship(
+          id: 'user-order',
+          sourceId: 'user',
+          targetId: 'order',
+          type: 'association',
+        ),
+      ],
+    );
+    final before = original.toJson();
+
+    expect(
+      createUmlRelationship(
+        original,
+        relationshipId: 'another-id',
+        sourceClassName: 'User',
+        targetClassName: 'Order',
+        type: 'association',
+      ),
+      isNull,
+    );
+    expect(original.toJson(), equals(before));
+  });
+
+  test('allows the same endpoints with a different valid type', () {
+    final original = _document(
+      relationships: const [
+        UmlRelationship(
+          id: 'user-order',
+          sourceId: 'user',
+          targetId: 'order',
+          type: 'association',
+        ),
+      ],
+    );
+
+    final updated = createUmlRelationship(
+      original,
+      relationshipId: 'user-order-dependency',
+      sourceClassName: 'User',
+      targetClassName: 'Order',
+      type: 'dependency',
+    );
+
+    expect(updated, isNotNull);
+    expect(updated!.relationships, hasLength(2));
+    expect(updated.relationships.last.type, 'dependency');
+    expect(original.relationships, hasLength(1));
+  });
+
   test('deletes a class and all connected relationships', () {
     final original = _document(
       relationships: const [
