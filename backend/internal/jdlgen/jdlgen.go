@@ -336,27 +336,33 @@ func IsEnumStereotype(stereotype *string) bool {
 
 // jdlTypeFor maps a UML attribute type to a JDL field type. The boolean is
 // false when the UML type is unknown; callers then emit String plus a warning.
+//
+// Alongside the English/JDL vocabulary, it accepts the small Spanish voice
+// vocabulary VOICE-03 defines (comparison is case-insensitive; both accented
+// and unaccented spellings are accepted): entero, texto/cadena, decimal,
+// fecha, "fecha hora"/"fecha y hora", booleano/lógico, largo, flotante,
+// doble, uuid.
 func jdlTypeFor(umlType string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(umlType)) {
-	case "string":
+	case "string", "texto", "cadena":
 		return "String", true
 	case "text":
 		return "TextBlob", true
-	case "int", "integer", "short", "byte":
+	case "int", "integer", "short", "byte", "entero":
 		return "Integer", true
-	case "long":
+	case "long", "largo":
 		return "Long", true
-	case "float":
+	case "float", "flotante":
 		return "Float", true
-	case "double":
+	case "double", "doble":
 		return "Double", true
 	case "bigdecimal", "decimal", "money":
 		return "BigDecimal", true
-	case "boolean", "bool":
+	case "boolean", "bool", "booleano", "lógico", "logico":
 		return "Boolean", true
-	case "date", "localdate":
+	case "date", "localdate", "fecha":
 		return "LocalDate", true
-	case "datetime", "timestamp", "zoneddatetime":
+	case "datetime", "timestamp", "zoneddatetime", "fecha hora", "fecha y hora":
 		return "ZonedDateTime", true
 	case "instant":
 		return "Instant", true

@@ -502,6 +502,55 @@ func TestBuildModelSkipsIDAttributeNoWarningWhenLong(t *testing.T) {
 	}
 }
 
+// TestBuildModelSpanishTypeAliases covers VOICE-03: attribute types a
+// Spanish voice transcript produces (case/accent-insensitive) must map to the
+// same canonical JDL type the equivalent English/JDL word maps to, and must
+// never trigger the "unknown UML type" warning.
+func TestBuildModelSpanishTypeAliases(t *testing.T) {
+	cases := []struct{ input, want string }{
+		{"entero", "Integer"},
+		{"ENTERO", "Integer"},
+		{"texto", "String"},
+		{"cadena", "String"},
+		{"decimal", "BigDecimal"},
+		{"fecha", "LocalDate"},
+		{"fecha hora", "ZonedDateTime"},
+		{"fecha y hora", "ZonedDateTime"},
+		{"booleano", "Boolean"},
+		{"lógico", "Boolean"},
+		{"logico", "Boolean"},
+		{"largo", "Long"},
+		{"flotante", "Float"},
+		{"doble", "Double"},
+		{"uuid", "UUID"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			doc := domain.DiagramDocument{
+				SchemaVersion: 1,
+				Name:          "voice",
+				Classes: []domain.UmlClass{
+					{ID: "c1", Name: "Cliente", Attributes: []domain.Attribute{
+						{ID: "a1", Name: "campo", Type: tc.input},
+					}},
+				},
+			}
+			m, rep := jdlgen.BuildModel(doc)
+			if len(m.Entities) != 1 || len(m.Entities[0].Fields) != 1 {
+				t.Fatalf("expected 1 field, got %+v", m.Entities)
+			}
+			got := m.Entities[0].Fields[0].Type
+			if got != tc.want {
+				t.Errorf("type %q mapped to %q, want %q", tc.input, got, tc.want)
+			}
+			joined := strings.Join(rep.Warnings, "\n")
+			if strings.Contains(joined, "unknown UML type") {
+				t.Errorf("unexpected unknown-type warning for %q:\n%s", tc.input, joined)
+			}
+		})
+	}
+}
+
 func TestExportUnknownRelationshipTypeSkipped(t *testing.T) {
 	doc := domain.DiagramDocument{
 		SchemaVersion: 1,
