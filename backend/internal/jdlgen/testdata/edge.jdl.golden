@@ -18,5 +18,5 @@ relationship ManyToMany {
 }
 
 relationship OneToMany {
-  Order{class2s} to Class{order}
+  Order{class2s} to Class{order required}
 }

@@ -38,6 +38,12 @@ type Relationship struct {
 	Dst      string
 	SrcField string // field declared on the source/owning entity
 	DstField string // field declared on the destination entity
+	// Required marks the FK-holding side's reference as mandatory: the
+	// generated JDL gets `required` on that field and the SQL column gets
+	// NOT NULL. It derives from the lower bound of the multiplicity on the
+	// REFERENCED end (see isRequiredEnd) and is always false for ManyToMany
+	// and for a self-reference, so the first row stays insertable.
+	Required bool
 }
 
 // pluralField returns the collection-side field name in the same shape the
@@ -211,6 +217,15 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 		case "association", "aggregation", "composition":
 			card := cardinality(isManySide(rel.SourceMultiplicity), isManySide(rel.TargetMultiplicity))
 			r := relationshipFields(card, src, dst, entityFields)
+			r.Required = requiredEnd(card, rel.SourceMultiplicity, rel.TargetMultiplicity)
+			if src == dst && r.Required {
+				// A required self-FK makes the first row impossible to
+				// insert (it would need to reference a row that does not
+				// exist yet), so self-references always stay optional.
+				r.Required = false
+				rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+					`relationship %s: self-reference %q kept optional (a required self-FK makes the first row impossible to insert)`, rel.ID, src))
+			}
 			m.Relationships = append(m.Relationships, r)
 			rep.Relationships = append(rep.Relationships, renderRelationship(r))
 			if rel.Label != nil && strings.TrimSpace(*rel.Label) != "" {
@@ -327,11 +342,41 @@ func relationshipFields(card, src, dst string, entityFields map[string]map[strin
 	return r
 }
 
+// requiredEnd derives Relationship.Required from the multiplicity of the
+// REFERENCED end, i.e. the end the FK-holding side points at: the FK is
+// required whenever that end's multiplicity has a lower bound >= 1
+// (Order * -- 1 Customer: every Order must reference a Customer). ManyToOne/OneToOne read the
+// target multiplicity (the FK, declared on Src, references Dst); OneToMany
+// reads the source multiplicity (the FK, declared on Dst, references Src).
+// ManyToMany has no scalar FK column, so it is never required.
+func requiredEnd(card string, srcMultiplicity, dstMultiplicity *string) bool {
+	switch card {
+	case "ManyToOne", "OneToOne":
+		return isRequiredEnd(dstMultiplicity)
+	case "OneToMany":
+		return isRequiredEnd(srcMultiplicity)
+	default: // ManyToMany
+		return false
+	}
+}
+
 // renderRelationship renders one body line of a JDL relationship block. The
 // cardinality keyword belongs only to the block header ("relationship X {");
 // the grammar rejects it again inside the body (MismatchedTokenException).
+// When Required is set, `required` is appended inside the braces of the
+// FK-holding field only: ManyToOne/OneToOne hold the FK on Src, OneToMany
+// holds it on Dst.
 func renderRelationship(r Relationship) string {
-	return fmt.Sprintf("%s{%s} to %s{%s}", r.Src, r.SrcField, r.Dst, r.DstField)
+	srcField, dstField := r.SrcField, r.DstField
+	if r.Required {
+		switch r.Kind {
+		case "ManyToOne", "OneToOne":
+			srcField += " required"
+		case "OneToMany":
+			dstField += " required"
+		}
+	}
+	return fmt.Sprintf("%s{%s} to %s{%s}", r.Src, srcField, r.Dst, dstField)
 }
 
 func danglingID(rel domain.Relationship, srcOK bool) string {

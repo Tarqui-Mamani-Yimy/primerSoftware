@@ -7,7 +7,7 @@
   ],
   "relationships": [
     "Order{orders} to Order{orders2}",
-    "Order{class2s} to Class{order}"
+    "Order{class2s} to Class{order required}"
   ],
   "dropped": [
     {

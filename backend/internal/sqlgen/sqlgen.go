@@ -184,6 +184,8 @@ func RenderSQL(m jdlgen.Model) string {
 	// entity holds it (Src holds the collection). The column and its
 	// ALTER TABLE FK constraint always live on the SAME table — a column
 	// declared in one table with a constraint on another is a broken schema.
+	// When the relationship is Required (UML lower bound >= 1 on the
+	// referenced end), the FK column gets NOT NULL alongside any UNIQUE.
 	for _, e := range m.Entities {
 		table := snake(e.Name)
 		b.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n", table))
@@ -223,11 +225,15 @@ func RenderSQL(m jdlgen.Model) string {
 			if ownerTable == "" || col == "" {
 				continue
 			}
+			notNull := ""
+			if r.Required {
+				notNull = " NOT NULL"
+			}
 			unique := ""
 			if isOneToOne {
 				unique = " CONSTRAINT ux_" + ownerTable + "__" + col + " UNIQUE"
 			}
-			b.WriteString(",\n    " + col + " bigint" + unique)
+			b.WriteString(",\n    " + col + " bigint" + notNull + unique)
 			fks = append(fks, fk{table: ownerTable, column: col, target: target})
 		}
 		b.WriteString("\n);\n\n")

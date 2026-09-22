@@ -235,12 +235,12 @@ func TestExportCardinalities(t *testing.T) {
 		want string
 	}{
 		{name: "missing means one to one", src: nil, dst: nil, want: "Alpha{beta} to Beta{alpha}"},
-		{name: "one to many", src: strp("1"), dst: strp("*"), want: "Alpha{betas} to Beta{alpha}"},
-		{name: "many to one", src: strp("*"), dst: strp("1"), want: "Alpha{beta} to Beta{alphas}"},
+		{name: "one to many", src: strp("1"), dst: strp("*"), want: "Alpha{betas} to Beta{alpha required}"},
+		{name: "many to one", src: strp("*"), dst: strp("1"), want: "Alpha{beta required} to Beta{alphas}"},
 		{name: "many to many", src: strp("*"), dst: strp("*"), want: "Alpha{betas} to Beta{alphas}"},
 		{name: "range many", src: strp("0..1"), dst: strp("1..*"), want: "Alpha{betas} to Beta{alpha}"},
-		{name: "numeric many", src: strp("2"), dst: strp("1"), want: "Alpha{beta} to Beta{alphas}"},
-		{name: "one to one ranges", src: strp("1"), dst: strp("1..1"), want: "Alpha{beta} to Beta{alpha}"},
+		{name: "numeric many", src: strp("2"), dst: strp("1"), want: "Alpha{beta required} to Beta{alphas}"},
+		{name: "one to one ranges", src: strp("1"), dst: strp("1..1"), want: "Alpha{beta required} to Beta{alpha}"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -250,6 +250,86 @@ func TestExportCardinalities(t *testing.T) {
 			}
 			if rep.Relationships[0] != tc.want {
 				t.Errorf("relationship = %q, want %q", rep.Relationships[0], tc.want)
+			}
+		})
+	}
+}
+
+func selfRefDoc(srcMult, dstMult *string) domain.DiagramDocument {
+	return domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "self",
+		Classes: []domain.UmlClass{
+			{ID: "a", Name: "Alpha"},
+		},
+		Relationships: []domain.Relationship{
+			{ID: "r", SourceID: "a", TargetID: "a", Type: "association",
+				SourceMultiplicity: srcMult, TargetMultiplicity: dstMult},
+		},
+	}
+}
+
+// TestBuildModelRequiredByKind covers the lower-bound-drives-mandatory-FK
+// rule end to end: isRequiredEnd (tested via multiplicity values across the
+// full lower-bound range) combined with FK ownership per relationship kind,
+// plus the self-reference override that never forces a required self-FK.
+func TestBuildModelRequiredByKind(t *testing.T) {
+	cases := []struct {
+		name         string
+		selfRef      bool
+		src          *string
+		dst          *string
+		wantKind     string
+		wantRequired bool
+		wantRendered string
+		wantWarning  string
+	}{
+		{name: "many to one required (lower bound 1)", src: strp("*"), dst: strp("1"),
+			wantKind: "ManyToOne", wantRequired: true, wantRendered: "Alpha{beta required} to Beta{alphas}"},
+		{name: "many to optional one (lower bound 0)", src: strp("*"), dst: strp("0..1"),
+			wantKind: "ManyToOne", wantRequired: false, wantRendered: "Alpha{beta} to Beta{alphas}"},
+		{name: "one to many required (lower bound 1)", src: strp("1"), dst: strp("*"),
+			wantKind: "OneToMany", wantRequired: true, wantRendered: "Alpha{betas} to Beta{alpha required}"},
+		{name: "optional one to many (lower bound 0)", src: strp("0..1"), dst: strp("*"),
+			wantKind: "OneToMany", wantRequired: false, wantRendered: "Alpha{betas} to Beta{alpha}"},
+		{name: "one to one required (lower bound 1)", src: strp("1"), dst: strp("1"),
+			wantKind: "OneToOne", wantRequired: true, wantRendered: "Alpha{beta required} to Beta{alpha}"},
+		{name: "many to many never required", src: strp("*"), dst: strp("*"),
+			wantKind: "ManyToMany", wantRequired: false, wantRendered: "Alpha{betas} to Beta{alphas}"},
+		{name: "nil multiplicities not required", src: nil, dst: nil,
+			wantKind: "OneToOne", wantRequired: false, wantRendered: "Alpha{beta} to Beta{alpha}"},
+		{name: "self-reference kept optional", selfRef: true, src: strp("*"), dst: strp("1"),
+			wantKind: "ManyToOne", wantRequired: false, wantRendered: "Alpha{alpha} to Alpha{alphas}",
+			wantWarning: `relationship r: self-reference "Alpha" kept optional (a required self-FK makes the first row impossible to insert)`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var doc domain.DiagramDocument
+			if tc.selfRef {
+				doc = selfRefDoc(tc.src, tc.dst)
+			} else {
+				doc = cardinalityDoc(tc.src, tc.dst)
+			}
+			m, rep := jdlgen.BuildModel(doc)
+			if len(m.Relationships) != 1 {
+				t.Fatalf("expected 1 relationship, got %+v", m.Relationships)
+			}
+			r := m.Relationships[0]
+			if r.Kind != tc.wantKind {
+				t.Errorf("Kind = %q, want %q", r.Kind, tc.wantKind)
+			}
+			if r.Required != tc.wantRequired {
+				t.Errorf("Required = %v, want %v", r.Required, tc.wantRequired)
+			}
+			if len(rep.Relationships) != 1 || rep.Relationships[0] != tc.wantRendered {
+				t.Errorf("rendered = %v, want [%q]", rep.Relationships, tc.wantRendered)
+			}
+			joined := strings.Join(rep.Warnings, "\n")
+			if tc.wantWarning != "" && !strings.Contains(joined, tc.wantWarning) {
+				t.Errorf("warnings must contain %q, got:\n%s", tc.wantWarning, joined)
+			}
+			if tc.wantWarning == "" && strings.Contains(joined, "self-reference") {
+				t.Errorf("unexpected self-reference warning, got:\n%s", joined)
 			}
 		})
 	}

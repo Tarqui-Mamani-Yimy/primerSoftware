@@ -96,7 +96,8 @@ func TestRenderSQLStructure(t *testing.T) {
 		"    enrollment_id bigint",
 		"ALTER TABLE student ADD CONSTRAINT fk_student__enrollment_id FOREIGN KEY (enrollment_id) REFERENCES enrollment (id);",
 		"CREATE TABLE IF NOT EXISTS profile (",
-		"    student_id bigint CONSTRAINT ux_profile__student_id UNIQUE",
+		// Profile{1}--Student{1}: required OneToOne keeps its NOT NULL alongside UNIQUE.
+		"    student_id bigint NOT NULL CONSTRAINT ux_profile__student_id UNIQUE",
 		"CREATE TABLE IF NOT EXISTS rel_course__tags (",
 		"    course_id bigint NOT NULL,",
 		"    tags_id bigint NOT NULL,",
@@ -218,6 +219,49 @@ func TestRenderSQLRelationshipsUsePluralCollectionNames(t *testing.T) {
 	// appear as a column anywhere; only the FK-holding side (student_id) does.
 	if strings.Contains(sql, "enrollments_id") {
 		t.Errorf("plural collection field leaked as a column:\n%s", sql)
+	}
+}
+
+// TestRenderSQLRequiredForeignKeys covers the mandatory-lower-bound rule
+// (Relationship.Required) landing on the correct owning column: NOT NULL for
+// a required ManyToOne/OneToOne FK, plain nullable for an optional one, NOT
+// NULL on the Dst table for a required OneToMany FK, and NOT NULL alongside
+// the existing UNIQUE constraint for a required OneToOne.
+func TestRenderSQLRequiredForeignKeys(t *testing.T) {
+	m := jdlgen.Model{
+		DiagramName: "ReqTest",
+		Entities: []jdlgen.Entity{
+			{Name: "Order"},
+			{Name: "Customer"},
+			{Name: "Store"},
+			{Name: "Warehouse"},
+			{Name: "Profile"},
+		},
+		Relationships: []jdlgen.Relationship{
+			{Kind: "ManyToOne", Src: "Order", Dst: "Customer", SrcField: "customer", DstField: "orders", Required: true},
+			{Kind: "ManyToOne", Src: "Order", Dst: "Store", SrcField: "store", DstField: "orders", Required: false},
+			{Kind: "OneToMany", Src: "Store", Dst: "Warehouse", SrcField: "warehouses", DstField: "store", Required: true},
+			{Kind: "OneToOne", Src: "Order", Dst: "Profile", SrcField: "profile", DstField: "order", Required: true},
+		},
+	}
+	sql := sqlgen.RenderSQL(m)
+
+	wantOrderTable := "CREATE TABLE IF NOT EXISTS order (\n" +
+		"    id bigint PRIMARY KEY,\n" +
+		"    customer_id bigint NOT NULL,\n" +
+		"    store_id bigint,\n" +
+		"    profile_id bigint NOT NULL CONSTRAINT ux_order__profile_id UNIQUE\n" +
+		");\n"
+	if !strings.Contains(sql, wantOrderTable) {
+		t.Errorf("order table missing required/optional FK columns, want block:\n%s\n---\n%s", wantOrderTable, sql)
+	}
+
+	wantWarehouseTable := "CREATE TABLE IF NOT EXISTS warehouse (\n" +
+		"    id bigint PRIMARY KEY,\n" +
+		"    store_id bigint NOT NULL\n" +
+		");\n"
+	if !strings.Contains(sql, wantWarehouseTable) {
+		t.Errorf("warehouse table missing required OneToMany FK column, want block:\n%s\n---\n%s", wantWarehouseTable, sql)
 	}
 }
 

@@ -11,5 +11,5 @@ entity Customer {
 }
 
 relationship OneToMany {
-  Order{customers} to Customer{order}
+  Order{customers} to Customer{order required}
 }

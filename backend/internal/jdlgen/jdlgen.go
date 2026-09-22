@@ -395,6 +395,30 @@ func isManySide(multiplicity *string) bool {
 	return false
 }
 
+// isRequiredEnd interprets a UML multiplicity's lower bound: nil, empty, and
+// "*" are optional (false); an explicit lower bound of 1 or more ("1",
+// "1..*", "2..5") is required (true); a lower bound of 0 ("0", "0..1",
+// "0..*") is optional. The lower bound is the part before ".." when present,
+// otherwise the whole value.
+func isRequiredEnd(multiplicity *string) bool {
+	if multiplicity == nil {
+		return false
+	}
+	s := strings.TrimSpace(*multiplicity)
+	if s == "" {
+		return false
+	}
+	lower := strings.TrimSpace(strings.SplitN(s, "..", 2)[0])
+	if lower == "*" {
+		return false
+	}
+	n, err := strconv.Atoi(lower)
+	if err != nil {
+		return false
+	}
+	return n >= 1
+}
+
 // cardinality derives the JDL relationship kind from the many-ness of each end.
 func cardinality(srcMany, dstMany bool) string {
 	switch {
