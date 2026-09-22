@@ -15,6 +15,7 @@ import 'manual_uml_controls.dart';
 import 'manual_uml_dialogs.dart';
 import 'manual_dialog_guard.dart';
 import 'realtime_service.dart';
+import 'artifact_error.dart';
 import 'artifact_service.dart';
 import 'image_import_flow.dart';
 import 'image_import_preview.dart';
@@ -779,8 +780,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
           generatedArtifact = file;
           saveStatus = AppStrings.backendReady;
         });
-    } catch (_) {
-      if (mounted) setState(() => saveStatus = AppStrings.backendFailed);
+    } catch (error) {
+      if (mounted) {
+        setState(() => saveStatus = artifactFailureMessage(error));
+      }
     } finally {
       if (mounted) setState(() => generatingArtifact = false);
     }
