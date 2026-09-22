@@ -105,6 +105,111 @@ UmlDocument? addUmlMethod(
   return next;
 }
 
+UmlDocument? updateUmlAttribute(
+  UmlDocument document, {
+  required String className,
+  required String attributeId,
+  required String name,
+  required String type,
+  String visibility = '+',
+  bool isPk = false,
+}) {
+  final target = _findUniqueClass(document.classes, className);
+  if (target == null ||
+      !_validText(name) ||
+      !_validText(type) ||
+      !_validVisibility(visibility)) {
+    return null;
+  }
+  final attribute = target.attributes.where((item) => item.id == attributeId);
+  if (attribute.length != 1 ||
+      target.attributes.any(
+          (item) => item.id != attributeId && _sameName(item.name, name))) {
+    return null;
+  }
+  final next = cloneUmlDocument(document);
+  final nextTarget = _findUniqueClass(next.classes, className)!;
+  final index =
+      nextTarget.attributes.indexWhere((item) => item.id == attributeId);
+  nextTarget.attributes[index] = UmlAttribute(
+    id: attributeId,
+    name: name.trim(),
+    type: type.trim(),
+    visibility: visibility,
+    isPk: isPk,
+  );
+  return next;
+}
+
+UmlDocument? deleteUmlAttribute(
+  UmlDocument document, {
+  required String className,
+  required String attributeId,
+}) {
+  final target = _findUniqueClass(document.classes, className);
+  if (target == null ||
+      target.attributes.where((item) => item.id == attributeId).length != 1) {
+    return null;
+  }
+  final next = cloneUmlDocument(document);
+  _findUniqueClass(next.classes, className)!
+      .attributes
+      .removeWhere((item) => item.id == attributeId);
+  return next;
+}
+
+UmlDocument? updateUmlMethod(
+  UmlDocument document, {
+  required String className,
+  required String methodId,
+  required String name,
+  required String returnType,
+  String visibility = '+',
+  bool isAbstract = false,
+}) {
+  final target = _findUniqueClass(document.classes, className);
+  if (target == null ||
+      !_validText(name) ||
+      !_validText(returnType) ||
+      !_validVisibility(visibility)) {
+    return null;
+  }
+  final method = target.methods.where((item) => item.id == methodId);
+  if (method.length != 1 ||
+      target.methods
+          .any((item) => item.id != methodId && _sameName(item.name, name))) {
+    return null;
+  }
+  final next = cloneUmlDocument(document);
+  final nextTarget = _findUniqueClass(next.classes, className)!;
+  final index = nextTarget.methods.indexWhere((item) => item.id == methodId);
+  nextTarget.methods[index] = UmlMethod(
+    id: methodId,
+    name: name.trim(),
+    returnType: returnType.trim(),
+    visibility: visibility,
+    isAbstract: isAbstract,
+  );
+  return next;
+}
+
+UmlDocument? deleteUmlMethod(
+  UmlDocument document, {
+  required String className,
+  required String methodId,
+}) {
+  final target = _findUniqueClass(document.classes, className);
+  if (target == null ||
+      target.methods.where((item) => item.id == methodId).length != 1) {
+    return null;
+  }
+  final next = cloneUmlDocument(document);
+  _findUniqueClass(next.classes, className)!
+      .methods
+      .removeWhere((item) => item.id == methodId);
+  return next;
+}
+
 /// Creates a relationship between exactly one source and target class.
 ///
 /// Existing relationships with the same endpoints are rejected. The input is
@@ -153,6 +258,88 @@ UmlDocument? createUmlRelationship(
       label: _trimOptional(label),
     ),
   );
+  return next;
+}
+
+UmlDocument? updateUmlRelationship(
+  UmlDocument document, {
+  required String relationshipId,
+  required String type,
+  String? sourceClassName,
+  String? targetClassName,
+  String? sourceMultiplicity,
+  String? targetMultiplicity,
+  String? label,
+}) {
+  final index = document.relationships
+      .indexWhere((relationship) => relationship.id == relationshipId);
+  final normalizedType = type.trim();
+  final current = index < 0 ? null : document.relationships[index];
+  final sourceId = sourceClassName == null
+      ? current?.sourceId
+      : _findUniqueClass(document.classes, sourceClassName)?.id;
+  final targetId = targetClassName == null
+      ? current?.targetId
+      : _findUniqueClass(document.classes, targetClassName)?.id;
+  if (index < 0 ||
+      sourceId == null ||
+      targetId == null ||
+      !_validRelationshipType(normalizedType) ||
+      !_optionalText(sourceMultiplicity) ||
+      !_optionalText(targetMultiplicity) ||
+      !_optionalText(label) ||
+      !_validMultiplicity(sourceMultiplicity) ||
+      !_validMultiplicity(targetMultiplicity) ||
+      document.relationships.asMap().entries.any((entry) =>
+          entry.key != index &&
+          entry.value.sourceId == sourceId &&
+          entry.value.targetId == targetId &&
+          entry.value.type == normalizedType)) {
+    return null;
+  }
+  final next = cloneUmlDocument(document);
+  final existing = current!;
+  next.relationships[index] = UmlRelationship(
+    id: existing.id,
+    sourceId: sourceId,
+    targetId: targetId,
+    type: normalizedType,
+    sourceMultiplicity: _trimOptional(sourceMultiplicity),
+    targetMultiplicity: _trimOptional(targetMultiplicity),
+    label: _trimOptional(label),
+  );
+  return next;
+}
+
+UmlDocument? deleteUmlRelationship(
+  UmlDocument document, {
+  required String relationshipId,
+}) {
+  if (document.relationships
+          .where((item) => item.id == relationshipId)
+          .length !=
+      1) {
+    return null;
+  }
+  final next = cloneUmlDocument(document);
+  next.relationships.removeWhere((item) => item.id == relationshipId);
+  for (var index = 0; index < next.classes.length; index++) {
+    final umlClass = next.classes[index];
+    if (umlClass.attachedRelationshipId == relationshipId) {
+      next.classes[index] = UmlClass(
+        id: umlClass.id,
+        name: umlClass.name,
+        stereotype: umlClass.stereotype,
+        package: umlClass.package,
+        tableBinding: umlClass.tableBinding,
+        x: umlClass.x,
+        y: umlClass.y,
+        isAssociationClass: umlClass.isAssociationClass,
+        attributes: umlClass.attributes,
+        methods: umlClass.methods,
+      );
+    }
+  }
   return next;
 }
 

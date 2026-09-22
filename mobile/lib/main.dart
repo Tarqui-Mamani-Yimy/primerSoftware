@@ -11,6 +11,8 @@ import 'voice_command_flow.dart';
 import 'voice_command_preview.dart';
 import 'voice_commands.dart';
 import 'uml_mutations.dart';
+import 'manual_uml_controls.dart';
+import 'manual_uml_dialogs.dart';
 import 'realtime_service.dart';
 import 'artifact_service.dart';
 
@@ -731,14 +733,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    _invalidateVoiceUndo();
-    setState(() {
-      document.classes.removeWhere((item) => item.id == umlClass.id);
-      document.relationships.removeWhere((relationship) =>
-          relationship.sourceId == umlClass.id ||
-          relationship.targetId == umlClass.id);
-    });
-    scheduleAutosave();
+    _applyManualDocument(
+      deleteUmlClass(document, className: umlClass.name),
+    );
   }
 
   // flushOnExit is called when the user pops or the OS starts tearing down
@@ -876,6 +873,194 @@ class _WorkspacePageState extends State<WorkspacePage> {
         name: 'NewClass')));
     scheduleAutosave();
   }
+
+  bool _manualChangeAllowed() {
+    if (conflictRemote == null) return true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text(AppStrings.persistenceConflict)),
+    );
+    return false;
+  }
+
+  void _applyManualDocument(UmlDocument? updated) {
+    if (updated == null || !_manualChangeAllowed()) return;
+    _invalidateVoiceUndo();
+    setState(() => document = updated);
+    scheduleAutosave();
+  }
+
+  String _newManualId(String prefix, String value) =>
+      '$prefix-${DateTime.now().microsecondsSinceEpoch}-$value';
+
+  Future<void> addAttributeManually(UmlClass umlClass) async {
+    final form = await showAttributeForm(context);
+    if (form == null || !_manualChangeAllowed()) return;
+    _applyManualDocument(
+      addUmlAttribute(
+        document,
+        className: umlClass.name,
+        attributeId: _newManualId('attribute', form.name),
+        attributeName: form.name,
+        attributeType: form.type,
+        visibility: form.visibility,
+        isPk: form.isPk,
+      ),
+    );
+  }
+
+  Future<void> editAttributeManually(
+      UmlClass umlClass, UmlAttribute attribute) async {
+    final form = await showAttributeForm(context, initial: attribute);
+    if (form == null || !_manualChangeAllowed()) return;
+    _applyManualDocument(
+      updateUmlAttribute(
+        document,
+        className: umlClass.name,
+        attributeId: attribute.id,
+        name: form.name,
+        type: form.type,
+        visibility: form.visibility,
+        isPk: form.isPk,
+      ),
+    );
+  }
+
+  Future<void> deleteAttributeManually(
+      UmlClass umlClass, UmlAttribute attribute) async {
+    if (!await _confirmManualDelete()) return;
+    _applyManualDocument(
+      deleteUmlAttribute(
+        document,
+        className: umlClass.name,
+        attributeId: attribute.id,
+      ),
+    );
+  }
+
+  Future<void> addMethodManually(UmlClass umlClass) async {
+    final form = await showMethodForm(context);
+    if (form == null || !_manualChangeAllowed()) return;
+    _applyManualDocument(
+      addUmlMethod(
+        document,
+        className: umlClass.name,
+        methodId: _newManualId('method', form.name),
+        methodName: form.name,
+        returnType: form.returnType,
+        visibility: form.visibility,
+        isAbstract: form.isAbstract,
+      ),
+    );
+  }
+
+  Future<void> editMethodManually(
+      UmlClass umlClass, UmlMethod method) async {
+    final form = await showMethodForm(context, initial: method);
+    if (form == null || !_manualChangeAllowed()) return;
+    _applyManualDocument(
+      updateUmlMethod(
+        document,
+        className: umlClass.name,
+        methodId: method.id,
+        name: form.name,
+        returnType: form.returnType,
+        visibility: form.visibility,
+        isAbstract: form.isAbstract,
+      ),
+    );
+  }
+
+  Future<void> deleteMethodManually(
+      UmlClass umlClass, UmlMethod method) async {
+    if (!await _confirmManualDelete()) return;
+    _applyManualDocument(
+      deleteUmlMethod(
+        document,
+        className: umlClass.name,
+        methodId: method.id,
+      ),
+    );
+  }
+
+  Future<void> addRelationshipManually() async {
+    if (document.classes.isEmpty) return;
+    final form = await showRelationshipForm(context, classes: document.classes);
+    if (form == null || !_manualChangeAllowed()) return;
+    UmlClass? source;
+    UmlClass? target;
+    for (final item in document.classes) {
+      if (item.id == form.sourceId) source = item;
+      if (item.id == form.targetId) target = item;
+    }
+    if (source == null || target == null) return;
+    _applyManualDocument(
+      createUmlRelationship(
+        document,
+        relationshipId: _newManualId('relationship', form.type),
+        sourceClassName: source.name,
+        targetClassName: target.name,
+        type: form.type,
+        sourceMultiplicity: form.sourceMultiplicity,
+        targetMultiplicity: form.targetMultiplicity,
+        label: form.label,
+      ),
+    );
+  }
+
+  Future<void> editRelationshipManually(UmlRelationship relationship) async {
+    final form = await showRelationshipForm(
+      context,
+      classes: document.classes,
+      initial: relationship,
+    );
+    if (form == null || !_manualChangeAllowed()) return;
+    UmlClass? source;
+    UmlClass? target;
+    for (final item in document.classes) {
+      if (item.id == form.sourceId) source = item;
+      if (item.id == form.targetId) target = item;
+    }
+    if (source == null || target == null) return;
+    _applyManualDocument(
+      updateUmlRelationship(
+        document,
+        relationshipId: relationship.id,
+        type: form.type,
+        sourceClassName: source.name,
+        targetClassName: target.name,
+        sourceMultiplicity: form.sourceMultiplicity,
+        targetMultiplicity: form.targetMultiplicity,
+        label: form.label,
+      ),
+    );
+  }
+
+  Future<void> deleteRelationshipManually(UmlRelationship relationship) async {
+    if (!await _confirmManualDelete()) return;
+    _applyManualDocument(
+      deleteUmlRelationship(document, relationshipId: relationship.id),
+    );
+  }
+
+  Future<bool> _confirmManualDelete() async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text(AppStrings.delete),
+          content: const Text(AppStrings.confirmDeleteMember),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text(AppStrings.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text(AppStrings.delete),
+            ),
+          ],
+        ),
+      ) ??
+      false;
 
   Future<void> showVersions() async {
     if (document.id == null) return;
@@ -1216,6 +1401,19 @@ class _WorkspacePageState extends State<WorkspacePage> {
                           ),
                         ),
                       ])))),
+              const SizedBox(height: 16),
+              ManualUmlControls(
+                document: document,
+                onAddAttribute: addAttributeManually,
+                onEditAttribute: editAttributeManually,
+                onDeleteAttribute: deleteAttributeManually,
+                onAddMethod: addMethodManually,
+                onEditMethod: editMethodManually,
+                onDeleteMethod: deleteMethodManually,
+                onAddRelationship: addRelationshipManually,
+                onEditRelationship: editRelationshipManually,
+                onDeleteRelationship: deleteRelationshipManually,
+              ),
               if (document.classes.isEmpty)
                 const Padding(
                     padding: EdgeInsets.all(24),

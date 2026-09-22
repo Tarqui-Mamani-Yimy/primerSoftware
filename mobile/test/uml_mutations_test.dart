@@ -65,6 +65,90 @@ void main() {
     expect(original.classes.first.methods, isEmpty);
   });
 
+  test('edits and deletes an attribute without mutating input', () {
+    final original = _document();
+    final edited = updateUmlAttribute(
+      original,
+      className: 'User',
+      attributeId: 'id',
+      name: 'userId',
+      type: 'String',
+      visibility: '-',
+    );
+
+    expect(edited, isNotNull);
+    expect(edited!.classes.first.attributes.single.name, 'userId');
+    expect(edited.classes.first.attributes.single.type, 'String');
+    expect(original.classes.first.attributes.single.name, 'id');
+
+    final deleted = deleteUmlAttribute(
+      edited,
+      className: 'User',
+      attributeId: 'id',
+    );
+    expect(deleted, isNotNull);
+    expect(deleted!.classes.first.attributes, isEmpty);
+    expect(edited.classes.first.attributes, hasLength(1));
+  });
+
+  test('edits and deletes a method without mutating input', () {
+    final original = _document(
+      methods: const [
+        UmlMethod(id: 'validate', name: 'validate', returnType: 'bool'),
+      ],
+    );
+    final edited = updateUmlMethod(
+      original,
+      className: 'User',
+      methodId: 'validate',
+      name: 'check',
+      returnType: 'String',
+      visibility: '#',
+    );
+
+    expect(edited, isNotNull);
+    expect(edited!.classes.first.methods.single.name, 'check');
+    expect(original.classes.first.methods.single.name, 'validate');
+
+    final deleted = deleteUmlMethod(
+      edited,
+      className: 'User',
+      methodId: 'validate',
+    );
+    expect(deleted, isNotNull);
+    expect(deleted!.classes.first.methods, isEmpty);
+  });
+
+  test('edits and deletes a relationship without mutating input', () {
+    final original = _document(
+      relationships: const [
+        UmlRelationship(
+          id: 'user-order',
+          sourceId: 'user',
+          targetId: 'order',
+          type: 'association',
+        ),
+      ],
+    );
+    final edited = updateUmlRelationship(
+      original,
+      relationshipId: 'user-order',
+      type: 'dependency',
+      sourceMultiplicity: '1',
+      targetMultiplicity: '*',
+      label: 'uses',
+    );
+
+    expect(edited, isNotNull);
+    expect(edited!.relationships.single.type, 'dependency');
+    expect(original.relationships.single.type, 'association');
+
+    final deleted = deleteUmlRelationship(edited, relationshipId: 'user-order');
+    expect(deleted, isNotNull);
+    expect(deleted!.relationships, isEmpty);
+    expect(edited.relationships, hasLength(1));
+  });
+
   test('creates a validated relationship and preserves baselines', () {
     final original = _document();
     final updated = createUmlRelationship(
@@ -277,6 +361,7 @@ void main() {
 UmlDocument _document({
   List<UmlRelationship> relationships = const [],
   bool duplicateUser = false,
+  List<UmlMethod> methods = const [],
 }) {
   final users = <UmlClass>[
     UmlClass(
@@ -285,6 +370,7 @@ UmlDocument _document({
       attributes: [
         const UmlAttribute(id: 'id', name: 'id', type: 'UUID', isPk: true),
       ],
+      methods: methods,
     ),
   ];
   if (duplicateUser) {
