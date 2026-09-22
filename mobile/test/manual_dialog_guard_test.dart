@@ -30,7 +30,7 @@ void main() {
     );
   });
 
-  test('rejects stale results after diagram or CAS baseline changes', () {
+  test('allows a baseline-only save acknowledgement', () {
     const token = ManualDialogToken(
       diagramId: 'diagram-1',
       version: 3,
@@ -48,22 +48,30 @@ void main() {
       isFalse,
     );
     expect(
-      token.matches(
-        diagramId: 'diagram-1',
-        version: 4,
-        reviewNumber: 7,
-        generation: 10,
-      ),
-      isFalse,
+        token.matches(
+          diagramId: 'diagram-1',
+          version: 4,
+          reviewNumber: 8,
+          generation: 10,
+        ),
+        isTrue);
+  });
+
+  test('rejects a changed diagram even when its baseline is unchanged', () {
+    const token = ManualDialogToken(
+      diagramId: 'diagram-1',
+      version: 3,
+      reviewNumber: 7,
+      generation: 10,
     );
+
     expect(
-      token.matches(
-        diagramId: 'diagram-1',
-        version: 3,
-        reviewNumber: 8,
-        generation: 10,
-      ),
-      isFalse,
-    );
+        token.matches(
+          diagramId: 'diagram-2',
+          version: 3,
+          reviewNumber: 7,
+          generation: 10,
+        ),
+        isFalse);
   });
 }

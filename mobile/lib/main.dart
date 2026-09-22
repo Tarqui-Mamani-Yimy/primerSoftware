@@ -740,7 +740,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
     if (confirmed != true || !_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
-      deleteUmlClass(document, className: umlClass.name),
+      deleteUmlClass(document, classId: umlClass.id),
     );
   }
 
@@ -876,10 +876,17 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   void addClass() {
     _invalidateVoiceUndo();
+    final existingNames = document.classes.map((item) => item.name).toSet();
+    var className = 'NewClass';
+    var suffix = 2;
+    while (existingNames.contains(className)) {
+      className = 'NewClass$suffix';
+      suffix++;
+    }
     setState(() {
       document.classes.add(UmlClass(
           id: DateTime.now().microsecondsSinceEpoch.toString(),
-          name: 'NewClass'));
+          name: className));
       documentGeneration++;
     });
     scheduleAutosave();
@@ -930,7 +937,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _applyManualDocument(
       addUmlAttribute(
         document,
-        className: umlClass.name,
+        classId: umlClass.id,
         attributeId: _newManualId('attribute', form.name),
         attributeName: form.name,
         attributeType: form.type,
@@ -948,7 +955,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _applyManualDocument(
       updateUmlAttribute(
         document,
-        className: umlClass.name,
+        classId: umlClass.id,
         attributeId: attribute.id,
         name: form.name,
         type: form.type,
@@ -966,7 +973,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _applyManualDocument(
       deleteUmlAttribute(
         document,
-        className: umlClass.name,
+        classId: umlClass.id,
         attributeId: attribute.id,
       ),
     );
@@ -979,7 +986,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _applyManualDocument(
       addUmlMethod(
         document,
-        className: umlClass.name,
+        classId: umlClass.id,
         methodId: _newManualId('method', form.name),
         methodName: form.name,
         returnType: form.returnType,
@@ -996,7 +1003,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _applyManualDocument(
       updateUmlMethod(
         document,
-        className: umlClass.name,
+        classId: umlClass.id,
         methodId: method.id,
         name: form.name,
         returnType: form.returnType,
@@ -1013,7 +1020,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _applyManualDocument(
       deleteUmlMethod(
         document,
-        className: umlClass.name,
+        classId: umlClass.id,
         methodId: method.id,
       ),
     );
@@ -1035,8 +1042,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
       createUmlRelationship(
         document,
         relationshipId: _newManualId('relationship', form.type),
-        sourceClassName: source.name,
-        targetClassName: target.name,
+        sourceClassId: source.id,
+        targetClassId: target.id,
         type: form.type,
         sourceMultiplicity: form.sourceMultiplicity,
         targetMultiplicity: form.targetMultiplicity,
@@ -1065,8 +1072,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
         document,
         relationshipId: relationship.id,
         type: form.type,
-        sourceClassName: source.name,
-        targetClassName: target.name,
+        sourceClassId: source.id,
+        targetClassId: target.id,
         sourceMultiplicity: form.sourceMultiplicity,
         targetMultiplicity: form.targetMultiplicity,
         label: form.label,

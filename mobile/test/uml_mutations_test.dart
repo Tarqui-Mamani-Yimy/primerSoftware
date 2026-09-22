@@ -1,6 +1,7 @@
 import 'package:ai_uml_architect_mobile/models.dart';
 import 'package:ai_uml_architect_mobile/uml_mutations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ai_uml_architect_mobile/manual_uml_dialogs.dart';
 
 void main() {
   test('creates a class without mutating the input', () {
@@ -14,6 +15,65 @@ void main() {
     expect(updated, isNotNull);
     expect(updated!.classes.map((item) => item.name), contains('Invoice'));
     expect(original.classes, hasLength(2));
+  });
+
+  test('targets duplicate placeholder names by stable class id', () {
+    final original = UmlDocument(
+      id: 'diagram-1',
+      name: 'Orders',
+      classes: [
+        UmlClass(id: 'new-1', name: 'NewClass'),
+        UmlClass(id: 'new-2', name: 'NewClass'),
+      ],
+    );
+    final added = addUmlAttribute(
+      original,
+      classId: 'new-2',
+      attributeId: 'code',
+      attributeName: 'code',
+      attributeType: 'String',
+    );
+    expect(added, isNotNull);
+    expect(added!.classes[1].attributes.single.name, 'code');
+    expect(added.classes[0].attributes, isEmpty);
+    final edited = updateUmlAttribute(
+      added,
+      classId: 'new-2',
+      attributeId: 'code',
+      name: 'updatedCode',
+      type: 'String',
+    );
+    expect(edited, isNotNull);
+    expect(edited!.classes[1].attributes.single.name, 'updatedCode');
+
+    final deleted = deleteUmlClass(original, classId: 'new-1');
+    expect(deleted, isNotNull);
+    expect(deleted!.classes.single.id, 'new-2');
+  });
+
+  test('normalizes blank relationship optional fields before mutation', () {
+    final form = RelationshipForm(
+      sourceId: 'user',
+      targetId: 'order',
+      type: 'association',
+      sourceMultiplicity: normalizeOptionalRelationshipText(''),
+      targetMultiplicity: normalizeOptionalRelationshipText(' '),
+      label: normalizeOptionalRelationshipText(''),
+    );
+    final updated = createUmlRelationship(
+      _document(),
+      relationshipId: 'user-order',
+      sourceClassId: form.sourceId,
+      targetClassId: form.targetId,
+      type: form.type,
+      sourceMultiplicity: form.sourceMultiplicity,
+      targetMultiplicity: form.targetMultiplicity,
+      label: form.label,
+    );
+    expect(updated, isNotNull);
+    expect(updated!.relationships.single.sourceMultiplicity, isNull);
+    expect(updated.relationships.single.targetMultiplicity, isNull);
+    expect(updated.relationships.single.label, isNull);
   });
 
   test('clone creates a detached document and preserves baselines', () {

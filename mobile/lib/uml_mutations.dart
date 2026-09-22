@@ -27,14 +27,16 @@ UmlDocument? createUmlClass(
 /// [document] when the target or request is invalid.
 UmlDocument? addUmlAttribute(
   UmlDocument document, {
-  required String className,
+  String? className,
+  String? classId,
   required String attributeId,
   required String attributeName,
   required String attributeType,
   String visibility = '+',
   bool isPk = false,
 }) {
-  final target = _findUniqueClass(document.classes, className);
+  final target = _findTargetClass(document.classes,
+      className: className, classId: classId);
   if (target == null ||
       !_validText(attributeId) ||
       !_validText(attributeName) ||
@@ -52,7 +54,8 @@ UmlDocument? addUmlAttribute(
   }
 
   final next = cloneUmlDocument(document);
-  final nextTarget = _findUniqueClass(next.classes, className)!;
+  final nextTarget =
+      _findTargetClass(next.classes, className: className, classId: classId)!;
   nextTarget.attributes.add(
     UmlAttribute(
       id: attributeId.trim(),
@@ -69,14 +72,16 @@ UmlDocument? addUmlAttribute(
 /// [document] when the target or request is invalid.
 UmlDocument? addUmlMethod(
   UmlDocument document, {
-  required String className,
+  String? className,
+  String? classId,
   required String methodId,
   required String methodName,
   required String returnType,
   String visibility = '+',
   bool isAbstract = false,
 }) {
-  final target = _findUniqueClass(document.classes, className);
+  final target = _findTargetClass(document.classes,
+      className: className, classId: classId);
   if (target == null ||
       !_validText(methodId) ||
       !_validText(methodName) ||
@@ -92,7 +97,8 @@ UmlDocument? addUmlMethod(
   }
 
   final next = cloneUmlDocument(document);
-  final nextTarget = _findUniqueClass(next.classes, className)!;
+  final nextTarget =
+      _findTargetClass(next.classes, className: className, classId: classId)!;
   nextTarget.methods.add(
     UmlMethod(
       id: methodId.trim(),
@@ -107,14 +113,16 @@ UmlDocument? addUmlMethod(
 
 UmlDocument? updateUmlAttribute(
   UmlDocument document, {
-  required String className,
+  String? className,
+  String? classId,
   required String attributeId,
   required String name,
   required String type,
   String visibility = '+',
   bool isPk = false,
 }) {
-  final target = _findUniqueClass(document.classes, className);
+  final target = _findTargetClass(document.classes,
+      className: className, classId: classId);
   if (target == null ||
       !_validText(name) ||
       !_validText(type) ||
@@ -128,7 +136,8 @@ UmlDocument? updateUmlAttribute(
     return null;
   }
   final next = cloneUmlDocument(document);
-  final nextTarget = _findUniqueClass(next.classes, className)!;
+  final nextTarget =
+      _findTargetClass(next.classes, className: className, classId: classId)!;
   final index =
       nextTarget.attributes.indexWhere((item) => item.id == attributeId);
   nextTarget.attributes[index] = UmlAttribute(
@@ -143,16 +152,18 @@ UmlDocument? updateUmlAttribute(
 
 UmlDocument? deleteUmlAttribute(
   UmlDocument document, {
-  required String className,
+  String? className,
+  String? classId,
   required String attributeId,
 }) {
-  final target = _findUniqueClass(document.classes, className);
+  final target = _findTargetClass(document.classes,
+      className: className, classId: classId);
   if (target == null ||
       target.attributes.where((item) => item.id == attributeId).length != 1) {
     return null;
   }
   final next = cloneUmlDocument(document);
-  _findUniqueClass(next.classes, className)!
+  _findTargetClass(next.classes, className: className, classId: classId)!
       .attributes
       .removeWhere((item) => item.id == attributeId);
   return next;
@@ -160,14 +171,16 @@ UmlDocument? deleteUmlAttribute(
 
 UmlDocument? updateUmlMethod(
   UmlDocument document, {
-  required String className,
+  String? className,
+  String? classId,
   required String methodId,
   required String name,
   required String returnType,
   String visibility = '+',
   bool isAbstract = false,
 }) {
-  final target = _findUniqueClass(document.classes, className);
+  final target = _findTargetClass(document.classes,
+      className: className, classId: classId);
   if (target == null ||
       !_validText(name) ||
       !_validText(returnType) ||
@@ -181,7 +194,8 @@ UmlDocument? updateUmlMethod(
     return null;
   }
   final next = cloneUmlDocument(document);
-  final nextTarget = _findUniqueClass(next.classes, className)!;
+  final nextTarget =
+      _findTargetClass(next.classes, className: className, classId: classId)!;
   final index = nextTarget.methods.indexWhere((item) => item.id == methodId);
   nextTarget.methods[index] = UmlMethod(
     id: methodId,
@@ -195,16 +209,18 @@ UmlDocument? updateUmlMethod(
 
 UmlDocument? deleteUmlMethod(
   UmlDocument document, {
-  required String className,
+  String? className,
+  String? classId,
   required String methodId,
 }) {
-  final target = _findUniqueClass(document.classes, className);
+  final target = _findTargetClass(document.classes,
+      className: className, classId: classId);
   if (target == null ||
       target.methods.where((item) => item.id == methodId).length != 1) {
     return null;
   }
   final next = cloneUmlDocument(document);
-  _findUniqueClass(next.classes, className)!
+  _findTargetClass(next.classes, className: className, classId: classId)!
       .methods
       .removeWhere((item) => item.id == methodId);
   return next;
@@ -217,15 +233,19 @@ UmlDocument? deleteUmlMethod(
 UmlDocument? createUmlRelationship(
   UmlDocument document, {
   required String relationshipId,
-  required String sourceClassName,
-  required String targetClassName,
+  String? sourceClassName,
+  String? targetClassName,
+  String? sourceClassId,
+  String? targetClassId,
   required String type,
   String? sourceMultiplicity,
   String? targetMultiplicity,
   String? label,
 }) {
-  final source = _findUniqueClass(document.classes, sourceClassName);
-  final target = _findUniqueClass(document.classes, targetClassName);
+  final source = _findTargetClass(document.classes,
+      className: sourceClassName, classId: sourceClassId);
+  final target = _findTargetClass(document.classes,
+      className: targetClassName, classId: targetClassId);
   final normalizedType = type.trim();
   if (source == null ||
       target == null ||
@@ -267,6 +287,8 @@ UmlDocument? updateUmlRelationship(
   required String type,
   String? sourceClassName,
   String? targetClassName,
+  String? sourceClassId,
+  String? targetClassId,
   String? sourceMultiplicity,
   String? targetMultiplicity,
   String? label,
@@ -275,12 +297,16 @@ UmlDocument? updateUmlRelationship(
       .indexWhere((relationship) => relationship.id == relationshipId);
   final normalizedType = type.trim();
   final current = index < 0 ? null : document.relationships[index];
-  final sourceId = sourceClassName == null
+  final sourceId = sourceClassName == null && sourceClassId == null
       ? current?.sourceId
-      : _findUniqueClass(document.classes, sourceClassName)?.id;
-  final targetId = targetClassName == null
+      : _findTargetClass(document.classes,
+              className: sourceClassName, classId: sourceClassId)
+          ?.id;
+  final targetId = targetClassName == null && targetClassId == null
       ? current?.targetId
-      : _findUniqueClass(document.classes, targetClassName)?.id;
+      : _findTargetClass(document.classes,
+              className: targetClassName, classId: targetClassId)
+          ?.id;
   if (index < 0 ||
       sourceId == null ||
       targetId == null ||
@@ -344,8 +370,10 @@ UmlDocument? deleteUmlRelationship(
 }
 
 /// Deletes exactly one class and every relationship connected to it.
-UmlDocument? deleteUmlClass(UmlDocument document, {required String className}) {
-  final target = _findUniqueClass(document.classes, className);
+UmlDocument? deleteUmlClass(UmlDocument document,
+    {String? className, String? classId}) {
+  final target = _findTargetClass(document.classes,
+      className: className, classId: classId);
   if (target == null) return null;
 
   final next = cloneUmlDocument(document);
@@ -378,10 +406,22 @@ UmlDocument? deleteUmlClass(UmlDocument document, {required String className}) {
   return next;
 }
 
-UmlClass? _findUniqueClass(List<UmlClass> classes, String name) {
-  if (!_validText(name)) return null;
+UmlClass? _findTargetClass(
+  List<UmlClass> classes, {
+  String? className,
+  String? classId,
+}) {
+  if (_validText(classId ?? '')) {
+    final matches = classes.where((item) => item.id == classId!.trim());
+    return matches.length == 1 ? matches.single : null;
+  }
+  return _findUniqueClass(classes, className);
+}
+
+UmlClass? _findUniqueClass(List<UmlClass> classes, String? name) {
+  if (!_validText(name ?? '')) return null;
   final matches = classes
-      .where((umlClass) => _sameName(umlClass.name, name))
+      .where((umlClass) => _sameName(umlClass.name, name!))
       .toList(growable: false);
   return matches.length == 1 ? matches.single : null;
 }

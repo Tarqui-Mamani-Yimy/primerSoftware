@@ -17,8 +17,5 @@ class ManualDialogToken {
     required int reviewNumber,
     required int generation,
   }) =>
-      this.diagramId == diagramId &&
-      this.version == version &&
-      this.reviewNumber == reviewNumber &&
-      this.generation == generation;
+      this.diagramId == diagramId && this.generation == generation;
 }

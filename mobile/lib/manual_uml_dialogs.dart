@@ -41,9 +41,14 @@ class RelationshipForm {
   final String sourceId;
   final String targetId;
   final String type;
-  final String sourceMultiplicity;
-  final String targetMultiplicity;
-  final String label;
+  final String? sourceMultiplicity;
+  final String? targetMultiplicity;
+  final String? label;
+}
+
+String? normalizeOptionalRelationshipText(String value) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }
 
 Future<AttributeForm?> showAttributeForm(
@@ -269,9 +274,11 @@ Future<RelationshipForm?> showRelationshipForm(
                 sourceId: sourceId,
                 targetId: targetId,
                 type: type,
-                sourceMultiplicity: source.text,
-                targetMultiplicity: target.text,
-                label: label.text,
+                sourceMultiplicity:
+                    normalizeOptionalRelationshipText(source.text),
+                targetMultiplicity:
+                    normalizeOptionalRelationshipText(target.text),
+                label: normalizeOptionalRelationshipText(label.text),
               ),
             ),
             child: const Text(AppStrings.create),
