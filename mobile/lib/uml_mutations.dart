@@ -102,19 +102,22 @@ UmlDocument? createUmlRelationship(
 }) {
   final source = _findUniqueClass(document.classes, sourceClassName);
   final target = _findUniqueClass(document.classes, targetClassName);
+  final normalizedType = type.trim();
   if (source == null ||
       target == null ||
-      source.id == target.id ||
       !_validText(relationshipId) ||
-      !_validText(type) ||
+      !_validRelationshipType(normalizedType) ||
       !_optionalText(sourceMultiplicity) ||
       !_optionalText(targetMultiplicity) ||
       !_optionalText(label) ||
+      !_validMultiplicity(sourceMultiplicity) ||
+      !_validMultiplicity(targetMultiplicity) ||
       document.relationships.any(
         (relationship) =>
             relationship.id == relationshipId ||
             (relationship.sourceId == source.id &&
-                relationship.targetId == target.id),
+                relationship.targetId == target.id &&
+                relationship.type == normalizedType),
       )) {
     return null;
   }
@@ -125,7 +128,7 @@ UmlDocument? createUmlRelationship(
       id: relationshipId.trim(),
       sourceId: source.id,
       targetId: target.id,
-      type: type.trim(),
+      type: normalizedType,
       sourceMultiplicity: _trimOptional(sourceMultiplicity),
       targetMultiplicity: _trimOptional(targetMultiplicity),
       label: _trimOptional(label),
@@ -182,6 +185,22 @@ bool _sameName(String left, String right) =>
     left.trim().toLowerCase() == right.trim().toLowerCase();
 
 bool _validText(String value) => value.trim().isNotEmpty;
+
+bool _validRelationshipType(String value) => const {
+  'association',
+  'aggregation',
+  'composition',
+  'generalization',
+  'realization',
+  'dependency',
+}.contains(value);
+
+final _multiplicityPattern = RegExp(r'^\s*(\d+|\*)\s*(\.\.\s*(\d+|\*))?\s*$');
+
+bool _validMultiplicity(String? value) =>
+    value == null ||
+    value.trim().isEmpty ||
+    _multiplicityPattern.hasMatch(value);
 
 bool _optionalText(String? value) => value == null || value.trim().isNotEmpty;
 

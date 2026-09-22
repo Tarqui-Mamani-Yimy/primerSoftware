@@ -98,6 +98,66 @@ void main() {
   });
 
   test(
+    'rejects unsupported types and invalid endpoint multiplicities unchanged',
+    () {
+      final original = _document();
+      final before = original.toJson();
+
+      expect(
+        createUmlRelationship(
+          original,
+          relationshipId: 'invalid-type',
+          sourceClassName: 'User',
+          targetClassName: 'Order',
+          type: 'realizes',
+        ),
+        isNull,
+      );
+      expect(
+        createUmlRelationship(
+          original,
+          relationshipId: 'invalid-source-multiplicity',
+          sourceClassName: 'User',
+          targetClassName: 'Order',
+          type: 'association',
+          sourceMultiplicity: 'many',
+        ),
+        isNull,
+      );
+      expect(
+        createUmlRelationship(
+          original,
+          relationshipId: 'invalid-target-multiplicity',
+          sourceClassName: 'User',
+          targetClassName: 'Order',
+          type: 'association',
+          targetMultiplicity: '1..many',
+        ),
+        isNull,
+      );
+      expect(original.toJson(), equals(before));
+    },
+  );
+
+  test('allows a valid recursive relationship', () {
+    final original = _document();
+    final updated = createUmlRelationship(
+      original,
+      relationshipId: 'user-parent',
+      sourceClassName: 'User',
+      targetClassName: 'User',
+      type: 'association',
+      sourceMultiplicity: '0..1',
+      targetMultiplicity: '*',
+    );
+
+    expect(updated, isNotNull);
+    expect(updated!.relationships.single.sourceId, 'user');
+    expect(updated.relationships.single.targetId, 'user');
+    expect(original.relationships, isEmpty);
+  });
+
+  test(
     'rejects missing, ambiguous, duplicate, and invalid requests unchanged',
     () {
       final original = _document(
