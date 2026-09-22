@@ -16,6 +16,9 @@ import 'manual_uml_dialogs.dart';
 import 'manual_dialog_guard.dart';
 import 'realtime_service.dart';
 import 'artifact_service.dart';
+import 'image_import_flow.dart';
+import 'image_import_preview.dart';
+import 'image_picker_channel.dart';
 
 void main() => runApp(UmlArchitectApp(api: ApiClient()));
 
@@ -469,6 +472,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
   // (reload) their local edit.
   UmlDocument? conflictRemote;
   int documentGeneration = 0;
+  final AndroidImagePicker imagePicker = const AndroidImagePicker();
+  bool imageImportBusy = false;
+  String imageImportStatus = '';
+  ImageImportPreview? imagePreview;
 
   @override
   void initState() {
@@ -617,6 +624,75 @@ class _WorkspacePageState extends State<WorkspacePage> {
   void _invalidateVoiceUndo() {
     lastVoiceSnapshot = null;
     voicePreview = invalidateVoicePreview(voicePreview);
+    documentGeneration++;
+  }
+
+  Future<void> importImage() async {
+    if (imageImportBusy || document.id == null) return;
+    final diagramId = document.id;
+    final generation = documentGeneration;
+    setState(() {
+      imageImportBusy = true;
+      imageImportStatus = AppStrings.importingImage;
+      imagePreview = null;
+    });
+    try {
+      final picked = await imagePicker.pick();
+      if (picked == null || !mounted) return;
+      final imported = await widget.api.importDiagramImage(
+        widget.project.id,
+        diagramId!,
+        image: picked.bytes,
+        mimeType: picked.mimeType,
+      );
+      if (!mounted ||
+          document.id != diagramId ||
+          generation != documentGeneration ||
+          conflictRemote != null) {
+        return;
+      }
+      setState(() {
+        imagePreview = ImageImportPreview.create(
+          imported: imported,
+          active: document,
+          generation: generation,
+        );
+        imageImportStatus = AppStrings.imageImportPreview;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => imageImportStatus = AppStrings.imageImportFailed);
+      }
+    } finally {
+      if (mounted) setState(() => imageImportBusy = false);
+    }
+  }
+
+  void cancelImagePreview() {
+    setState(() {
+      imagePreview = null;
+      imageImportStatus = AppStrings.voiceCommandCancelled;
+    });
+  }
+
+  void confirmImagePreview() {
+    final preview = imagePreview;
+    if (preview == null ||
+        !canConfirmImageImport(
+          preview,
+          active: document,
+          generation: documentGeneration,
+          hasConflict: conflictRemote != null,
+        )) {
+      return;
+    }
+    _invalidateVoiceUndo();
+    setState(() {
+      document = preview.documentFor(document);
+      imagePreview = null;
+      imageImportStatus = AppStrings.voiceCommandApplied;
+    });
+    scheduleAutosave();
   }
 
   Future<void> connectRealtime() async {
@@ -1359,6 +1435,35 @@ class _WorkspacePageState extends State<WorkspacePage> {
                       tooltip: AppStrings.shareBackend),
                 ],
               ]),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                key: const Key('image-import.open'),
+                onPressed: imageImportBusy ? null : importImage,
+                icon: imageImportBusy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator())
+                    : const Icon(Icons.image_search),
+                label: Text(imageImportBusy
+                    ? AppStrings.importingImage
+                    : AppStrings.importImage),
+              ),
+              if (imageImportStatus.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(imageImportStatus,
+                      key: const Key('image-import.status')),
+                ),
+              if (imagePreview != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: ImageImportPreviewPanel(
+                    document: imagePreview!.document,
+                    onConfirm: confirmImagePreview,
+                    onCancel: cancelImagePreview,
+                  ),
+                ),
               const SizedBox(height: 16),
               Card(
                 child: Padding(

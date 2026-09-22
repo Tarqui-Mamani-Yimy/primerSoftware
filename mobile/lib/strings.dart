@@ -148,4 +148,11 @@ class AppStrings {
   static const backendReady = 'Backend generado y listo para compartir.';
   static const shareBackend = 'Compartir ZIP';
   static const backendFailed = 'No se pudo generar el backend.';
+  static const importImage = 'Importar imagen UML';
+  static const importingImage = 'Analizando imagen UML…';
+  static const imageImportPreview = 'Vista previa de imagen UML';
+  static const imageImportConfirm = 'Confirmar importación';
+  static const imageImportFailed = 'No se pudo importar la imagen UML.';
+  static const classesImported = 'clases detectadas';
+  static const relationshipsImported = 'relaciones detectadas';
 }
