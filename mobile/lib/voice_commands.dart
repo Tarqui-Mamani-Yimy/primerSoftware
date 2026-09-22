@@ -46,11 +46,11 @@ class VoiceCommand {
 const _classPattern = r'^crear\s+(?:una\s+)?clase\s+(.+)$';
 const _relationshipPattern = r'^relacionar\s+(.+?)\s+con\s+(.+)$';
 const _undoPattern =
-    r'^deshacer(?:\s+(?:comando\s+de\s+voz|último\s+comando\s+de\s+voz))?$';
+    r'^deshacer(?:\s+(?:comando\s+de\s+voz|[úu]ltimo\s+comando\s+de\s+voz))?$';
 const _attributePattern =
-    r'^(?:agregar|añadir)\s+atributo\s+(.+?)\s+de\s+tipo\s+(.+?)\s+a\s+(.+)$';
+    r'^(?:agregar|a[ñn]adir)\s+atributo\s+(.+?)\s+de\s+tipo\s+(.+?)\s+a\s+(.+)$';
 const _methodPattern =
-    r'^(?:agregar|añadir)\s+método\s+(.+?)\s+de\s+retorno\s+(.+?)\s+a\s+(.+)$';
+    r'^(?:agregar|a[ñn]adir)\s+m[ée]todo\s+(.+?)\s+de\s+retorno\s+(.+?)\s+a\s+(.+)$';
 final _namePattern = RegExp(r"^[\p{L}\p{N}][\p{L}\p{N}' -]*$", unicode: true);
 final _multiplicityPattern = RegExp(
   r'^(?:\d+|\*)(?:\.\.(?:\d+|\*))?$',

@@ -141,6 +141,11 @@ const cases: Array<[string, unknown]> = [
   ['añadir método calcularEdad de retorno entero a Cliente', { kind: 'add-method', name: 'calcularEdad', returnType: 'Integer', className: 'Cliente' }],
   // Unknown/English types still pass through unchanged.
   ['agregar atributo email de tipo String a Usuario', { kind: 'add-attribute', name: 'email', type: 'String', className: 'Usuario' }],
+  // Speech-to-text may drop accents on command keywords.
+  ['agregar metodo validar de retorno Boolean a Usuario', { kind: 'add-method', name: 'validar', returnType: 'Boolean', className: 'Usuario' }],
+  ['anadir metodo validar de retorno Boolean a Usuario', { kind: 'add-method', name: 'validar', returnType: 'Boolean', className: 'Usuario' }],
+  ['anadir atributo correo de tipo String a Usuario', { kind: 'add-attribute', name: 'correo', type: 'String', className: 'Usuario' }],
+  ['deshacer ultimo comando de voz', { kind: 'undo-voice-command' }],
 ];
 
 for (const [input, expected] of cases) {

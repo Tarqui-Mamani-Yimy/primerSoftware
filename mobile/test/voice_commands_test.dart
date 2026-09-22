@@ -293,6 +293,26 @@ void main() {
       )?.returnType,
       'Integer',
     );
+    // Speech-to-text may drop accents on command keywords.
+    expect(
+      parseVoiceCommand('agregar metodo validar de retorno Boolean a Usuario')
+          ?.kind,
+      VoiceCommandKind.addMethod,
+    );
+    expect(
+      parseVoiceCommand('anadir metodo validar de retorno Boolean a Usuario')
+          ?.kind,
+      VoiceCommandKind.addMethod,
+    );
+    expect(
+      parseVoiceCommand('anadir atributo correo de tipo String a Usuario')
+          ?.kind,
+      VoiceCommandKind.addAttribute,
+    );
+    expect(
+      parseVoiceCommand('deshacer ultimo comando de voz')?.kind,
+      VoiceCommandKind.undoVoiceCommand,
+    );
     // Unknown/English types still pass through unchanged.
     expect(
       parseVoiceCommand(

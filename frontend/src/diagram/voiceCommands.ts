@@ -18,9 +18,9 @@ export type VoiceCommand =
 
 const CLASS_PATTERN = /^crear\s+(?:una\s+)?clase\s+(.+)$/i;
 const RELATIONSHIP_START_PATTERN = /^relacionar\s+(.+?)\s+con\s+(.+)$/i;
-const UNDO_PATTERN = /^deshacer(?:\s+(?:comando\s+de\s+voz|último\s+comando\s+de\s+voz))?$/i;
-const ATTRIBUTE_PATTERN = /^(?:agregar|añadir)\s+atributo\s+(.+?)\s+de\s+tipo\s+(.+?)\s+a\s+(.+)$/i;
-const METHOD_PATTERN = /^(?:agregar|añadir)\s+método\s+(.+?)\s+de\s+retorno\s+(.+?)\s+a\s+(.+)$/i;
+const UNDO_PATTERN = /^deshacer(?:\s+(?:comando\s+de\s+voz|[úu]ltimo\s+comando\s+de\s+voz))?$/i;
+const ATTRIBUTE_PATTERN = /^(?:agregar|a[ñn]adir)\s+atributo\s+(.+?)\s+de\s+tipo\s+(.+?)\s+a\s+(.+)$/i;
+const METHOD_PATTERN = /^(?:agregar|a[ñn]adir)\s+m[ée]todo\s+(.+?)\s+de\s+retorno\s+(.+?)\s+a\s+(.+)$/i;
 const NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}' -]*$/u;
 
 function cleanName(value: string): string | null {
