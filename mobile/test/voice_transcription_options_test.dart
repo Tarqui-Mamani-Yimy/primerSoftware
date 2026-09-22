@@ -7,4 +7,21 @@ void main() {
     expect(options.language, 'es');
     expect(options.translate, isFalse);
   });
+
+  test('primes Whisper with the voice command vocabulary', () {
+    final prompt = VoiceTranscriptionService.transcribeOptions.initialPrompt;
+    expect(prompt, isNotNull);
+    for (final word in [
+      'crear clase',
+      'relacionar',
+      'cardinalidad',
+      'origen',
+      'destino',
+      'método',
+      'atributo',
+      'composición',
+    ]) {
+      expect(prompt, contains(word));
+    }
+  });
 }

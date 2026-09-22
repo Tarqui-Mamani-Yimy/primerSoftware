@@ -27,9 +27,17 @@ class VoiceTranscriptionService {
 
   /// Voice commands are a Spanish-only grammar. Auto-detection with the tiny
   /// model misclassifies short utterances and may translate them, so the
-  /// language is pinned.
-  static const TranscribeOptions transcribeOptions =
-      TranscribeOptions(language: 'es');
+  /// language is pinned. The initial prompt primes the decoder with the
+  /// command vocabulary (keywords, relationship types, multiplicity words)
+  /// so the tiny model spells them the way the parser expects.
+  static const TranscribeOptions transcribeOptions = TranscribeOptions(
+    language: 'es',
+    initialPrompt: 'Comandos de diagrama UML: crear clase, relacionar, '
+        'con cardinalidad origen uno y destino cero a muchos, como '
+        'asociación, agregación, composición, generalización, realización '
+        'o dependencia, con verbo, agregar atributo de tipo entero, texto, '
+        'fecha o booleano, agregar método de retorno, deshacer.',
+  );
 
   final WhisperModelManager _modelManager = WhisperModelManager();
   final WhisperRecorder _recorder = WhisperRecorder();
