@@ -189,6 +189,30 @@ func TestGenerateE2EAgainstRealGenerator(t *testing.T) {
 			t.Errorf("patched application-dev.yml missing %q:\n%s", want, dev)
 		}
 	}
+
+	// CORS: a separately developed frontend's local dev origins must be
+	// allowed alongside the JHipster Ionic defaults, and the original
+	// allowed-origins must survive the patch.
+	for _, want := range []string{
+		"http://localhost:8100", "https://localhost:8100",
+		"http://localhost:5173", "http://127.0.0.1:5173",
+		"http://localhost:3000", "http://127.0.0.1:3000",
+		"http://localhost:4200",
+	} {
+		if !strings.Contains(dev, want) {
+			t.Errorf("patched application-dev.yml missing CORS origin %q:\n%s", want, dev)
+		}
+	}
+	if !strings.Contains(dev, `exposed-headers: 'Authorization,Link,X-Total-Count`) {
+		t.Errorf("patched application-dev.yml missing exposed-headers with Authorization,Link,X-Total-Count:\n%s", dev)
+	}
+
+	// prod must stay untouched: enabling CORS for arbitrary origins there is a
+	// separate, explicit decision this generator does not make.
+	prod := file("src/main/resources/config/application-prod.yml")
+	if strings.Contains(prod, "5173") {
+		t.Errorf("application-prod.yml must not gain the local dev CORS origins:\n%s", prod)
+	}
 }
 
 // changelogContains reports whether any Liquibase changelog in the artifact

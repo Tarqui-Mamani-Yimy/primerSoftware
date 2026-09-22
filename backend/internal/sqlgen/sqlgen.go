@@ -389,6 +389,80 @@ func patchLiquibase(path, contexts string) error {
 	return os.WriteFile(path, []byte(patched), 0o644)
 }
 
+// devFrontendOrigins are the local dev server origins of a frontend developed
+// separately from the generated backend (Vite/CRA default 5173/3000, Angular
+// default 4200), appended to jhipster.cors.allowed-origins in
+// application-dev.yml. The generated app always renders with skipClient true
+// and applicationType monolith (see jdlgen), so the template
+// (generators/spring-boot/templates/.../application-dev.yml.ejs:291-309 in
+// the pinned generator-jhipster 9.4.0) only emits the Ionic-for-JHipster
+// defaults (8100) here — nothing a browser frontend on another port can call.
+// Only the dev profile is touched: enabling CORS for arbitrary origins in
+// prod is a separate, explicit decision this generator does not make.
+var devFrontendOrigins = []string{
+	"http://localhost:5173", "http://127.0.0.1:5173",
+	"http://localhost:3000", "http://127.0.0.1:3000",
+	"http://localhost:4200",
+}
+
+// requiredExposedHeaders is the header set a separately developed frontend
+// needs to read from responses (pagination link header, total count, and the
+// JWT auth header on login). The template's own exposed-headers already
+// carries this for the pinned jwt-only authenticationType (application-dev
+// .yml.ejs:303-307), so the patch only fires on drift.
+const requiredExposedHeaders = "Authorization,Link,X-Total-Count"
+
+// The real generator renders these values through a YAML formatter that
+// prefers single quotes (verified against generator-jhipster 9.4.0 output:
+// `allowed-origins: 'http://localhost:8100,https://localhost:8100'`), even
+// though the .ejs template source itself uses double quotes — so the anchor
+// accepts either quote character.
+var (
+	corsAllowedOriginsRe = regexp.MustCompile(`(?m)^([ \t]*allowed-origins:[ \t]*)(['"])([^'"]*)(['"][ \t]*)$`)
+	corsExposedHeadersRe = regexp.MustCompile(`(?m)^([ \t]*exposed-headers:[ \t]*)(['"])([^'"]*)(['"][ \t]*)$`)
+)
+
+// patchCORS extends application-dev.yml's jhipster.cors so a separately
+// developed frontend is not blocked by the browser: it appends
+// devFrontendOrigins to allowed-origins (keeping every existing origin) and
+// ensures exposed-headers carries requiredExposedHeaders. Both anchors must
+// be found, otherwise the function fails loudly like patchFile.
+func patchCORS(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	content := string(data)
+
+	if !corsAllowedOriginsRe.MatchString(content) {
+		return fmt.Errorf("config anchor cors.allowed-origins not found in %s; generated project layout changed", path)
+	}
+	content = corsAllowedOriginsRe.ReplaceAllStringFunc(content, func(line string) string {
+		m := corsAllowedOriginsRe.FindStringSubmatch(line)
+		origins := m[3]
+		for _, o := range devFrontendOrigins {
+			if !strings.Contains(origins, o) {
+				origins += "," + o
+			}
+		}
+		return m[1] + m[2] + origins + m[4]
+	})
+
+	if !corsExposedHeadersRe.MatchString(content) {
+		return fmt.Errorf("config anchor cors.exposed-headers not found in %s; generated project layout changed", path)
+	}
+	content = corsExposedHeadersRe.ReplaceAllStringFunc(content, func(line string) string {
+		m := corsExposedHeadersRe.FindStringSubmatch(line)
+		headers := m[3]
+		if !strings.Contains(headers, requiredExposedHeaders) {
+			headers = requiredExposedHeaders + "," + headers
+		}
+		return m[1] + m[2] + headers + m[4]
+	})
+
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
 // PatchApplicationConfig rewrites the generated Spring Boot configuration so
 // the app connects to the compose-provisioned database and does not let
 // Liquibase run against the already-initialized schema. It patches
@@ -407,6 +481,9 @@ func PatchApplicationConfig(root, baseName, slug string) error {
 		return fmt.Errorf("patch application-dev.yml: %w", err)
 	}
 	if err := patchLiquibase(dev, "dev, faker"); err != nil {
+		return fmt.Errorf("patch application-dev.yml: %w", err)
+	}
+	if err := patchCORS(dev); err != nil {
 		return fmt.Errorf("patch application-dev.yml: %w", err)
 	}
 

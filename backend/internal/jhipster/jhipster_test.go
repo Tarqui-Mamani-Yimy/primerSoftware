@@ -115,6 +115,15 @@ func TestGenerateProducesZipWithManifest(t *testing.T) {
       auto-commit: false
   liquibase:
     contexts: dev, faker
+jhipster:
+  cors:
+    allowed-origins: 'http://localhost:8100,https://localhost:8100'
+    allowed-origin-patterns: 'https://*.githubpreview.dev'
+    allowed-methods: '*'
+    allowed-headers: '*'
+    exposed-headers: 'Authorization,Link,X-Total-Count,X-${jhipster.clientApp.name}-alert,X-${jhipster.clientApp.name}-error,X-${jhipster.clientApp.name}-params'
+    allow-credentials: true
+    max-age: 1800
 `
 	prodYml := `spring:
   datasource:
@@ -204,6 +213,15 @@ func TestGenerateProducesZipWithManifest(t *testing.T) {
 		"UmlArchitect/src/main/resources/config/application-dev.yml":            "url: jdbc:postgresql://localhost:5432/uml-architect",
 		"UmlArchitect/src/main/resources/config/application.yml":                "enabled: false # ai-uml-architect: database is provisioned by database/compose.yml",
 		"UmlArchitect/src/main/resources/config/application-secret-samples.yml": "username: devuser",
+	} {
+		if !strings.Contains(string(entries[path]), want) {
+			t.Errorf("%s missing %q after provisioning:\n%s", path, want, entries[path])
+		}
+	}
+	// A separately developed frontend's local dev origin must be allowed in
+	// application-dev.yml's CORS config, alongside the Ionic defaults.
+	for path, want := range map[string]string{
+		"UmlArchitect/src/main/resources/config/application-dev.yml": "http://localhost:5173",
 	} {
 		if !strings.Contains(string(entries[path]), want) {
 			t.Errorf("%s missing %q after provisioning:\n%s", path, want, entries[path])

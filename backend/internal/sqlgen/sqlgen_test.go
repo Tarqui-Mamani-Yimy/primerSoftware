@@ -404,6 +404,18 @@ const devFixture = `spring:
     contexts: dev, faker
   mail:
     host: localhost
+jhipster:
+  # CORS is only enabled by default with the "dev" profile
+  cors:
+    # Allow Ionic for JHipster by default (* no longer allowed in Spring Boot 2.4+)
+    allowed-origins: 'http://localhost:8100,https://localhost:8100'
+    # Enable CORS when running in GitHub Codespaces
+    allowed-origin-patterns: 'https://*.githubpreview.dev'
+    allowed-methods: '*'
+    allowed-headers: '*'
+    exposed-headers: 'Authorization,Link,X-Total-Count,X-${jhipster.clientApp.name}-alert,X-${jhipster.clientApp.name}-error,X-${jhipster.clientApp.name}-params'
+    allow-credentials: true
+    max-age: 1800
 `
 
 const prodFixture = `spring:
@@ -503,5 +515,131 @@ func TestPatchApplicationConfigMissingAnchor(t *testing.T) {
 	// application.yml is missing entirely (layout drift simulation).
 	if err := sqlgen.PatchApplicationConfig(root, "ProbeApp", "probe-app"); err == nil {
 		t.Fatal("expected error for missing application.yml, got nil")
+	}
+}
+
+// corsLine returns the first line of content containing "<key>:", failing the
+// test if none matches.
+func corsLine(t *testing.T, content, key string) string {
+	t.Helper()
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, key+":") {
+			return line
+		}
+	}
+	t.Fatalf("no line containing %q in:\n%s", key, content)
+	return ""
+}
+
+func TestPatchApplicationConfigCORSAddsFrontendOrigins(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "application-dev.yml", devFixture)
+	writeFixture(t, root, "application-prod.yml", prodFixture)
+	writeFixture(t, root, "application-secret-samples.yml", secretsFixture)
+	writeFixture(t, root, "application.yml", appFixture)
+
+	if err := sqlgen.PatchApplicationConfig(root, "ProbeApp", "probe-app"); err != nil {
+		t.Fatalf("PatchApplicationConfig: %v", err)
+	}
+
+	devPath := filepath.Join(root, "src", "main", "resources", "config", "application-dev.yml")
+	data, err := os.ReadFile(devPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	// The original Ionic-default origins must survive alongside the new ones.
+	for _, want := range []string{
+		"http://localhost:8100", "https://localhost:8100",
+		"http://localhost:5173", "http://127.0.0.1:5173",
+		"http://localhost:3000", "http://127.0.0.1:3000",
+		"http://localhost:4200",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("application-dev.yml missing CORS origin %q after patch:\n%s", want, content)
+		}
+	}
+
+	line := corsLine(t, content, "allowed-origins")
+	if strings.Count(line, "http://localhost:5173") != 1 {
+		t.Errorf("allowed-origins line must add each frontend origin exactly once, got:\n%s", line)
+	}
+
+	// prod must stay untouched: enabling CORS for arbitrary origins there is a
+	// separate, explicit decision.
+	prodPath := filepath.Join(root, "src", "main", "resources", "config", "application-prod.yml")
+	prodData, err := os.ReadFile(prodPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(prodData), "5173") {
+		t.Errorf("application-prod.yml must not gain the local dev CORS origins:\n%s", prodData)
+	}
+
+	if !strings.Contains(content, `exposed-headers: 'Authorization,Link,X-Total-Count`) {
+		t.Errorf("application-dev.yml missing exposed-headers with Authorization,Link,X-Total-Count:\n%s", content)
+	}
+}
+
+func TestPatchApplicationConfigCORSExposedHeadersAddedWhenMissing(t *testing.T) {
+	root := t.TempDir()
+	devMissingHeaders := `spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ProbeApp
+    hikari:
+      poolName: Hikari
+  liquibase:
+    contexts: dev, faker
+jhipster:
+  cors:
+    allowed-origins: "http://localhost:8100,https://localhost:8100"
+    allowed-methods: "*"
+    allowed-headers: "*"
+    exposed-headers: "X-Total-Count"
+    allow-credentials: true
+    max-age: 1800
+`
+	writeFixture(t, root, "application-dev.yml", devMissingHeaders)
+	writeFixture(t, root, "application-prod.yml", prodFixture)
+	writeFixture(t, root, "application-secret-samples.yml", secretsFixture)
+	writeFixture(t, root, "application.yml", appFixture)
+
+	if err := sqlgen.PatchApplicationConfig(root, "ProbeApp", "probe-app"); err != nil {
+		t.Fatalf("PatchApplicationConfig: %v", err)
+	}
+
+	devPath := filepath.Join(root, "src", "main", "resources", "config", "application-dev.yml")
+	data, err := os.ReadFile(devPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `exposed-headers: "Authorization,Link,X-Total-Count`) {
+		t.Errorf("exposed-headers must gain Authorization,Link,X-Total-Count when missing:\n%s", content)
+	}
+}
+
+func TestPatchApplicationConfigCORSMissingAnchor(t *testing.T) {
+	root := t.TempDir()
+	noCORSDev := `spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ProbeApp
+    hikari:
+      poolName: Hikari
+  liquibase:
+    contexts: dev, faker
+`
+	writeFixture(t, root, "application-dev.yml", noCORSDev)
+	writeFixture(t, root, "application-prod.yml", prodFixture)
+	writeFixture(t, root, "application-secret-samples.yml", secretsFixture)
+	writeFixture(t, root, "application.yml", appFixture)
+
+	err := sqlgen.PatchApplicationConfig(root, "ProbeApp", "probe-app")
+	if err == nil {
+		t.Fatal("expected error for missing CORS allowed-origins anchor, got nil")
+	}
+	if !strings.Contains(err.Error(), "application-dev.yml") {
+		t.Errorf("error must name application-dev.yml, got: %v", err)
 	}
 }
