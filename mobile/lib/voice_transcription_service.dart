@@ -25,6 +25,12 @@ class VoiceTranscriptionService {
     purpose: WhisperModelPurpose.transcription,
   );
 
+  /// Voice commands are a Spanish-only grammar. Auto-detection with the tiny
+  /// model misclassifies short utterances and may translate them, so the
+  /// language is pinned.
+  static const TranscribeOptions transcribeOptions =
+      TranscribeOptions(language: 'es');
+
   final WhisperModelManager _modelManager = WhisperModelManager();
   final WhisperRecorder _recorder = WhisperRecorder();
   final List<double> _samples = <double>[];
@@ -73,7 +79,7 @@ class VoiceTranscriptionService {
     if (engine == null) throw StateError('El modelo no está cargado.');
     final task = engine.transcribe(
       Float32List.fromList(_samples),
-      options: const TranscribeOptions(language: 'auto')
+      options: transcribeOptions
           .withPerformanceMode(WhisperPerformanceMode.efficient),
     );
     final result = await task.result;
