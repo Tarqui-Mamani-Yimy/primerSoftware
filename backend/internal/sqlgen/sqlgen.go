@@ -5,7 +5,10 @@
 // Liquibase disabled.
 //
 // The renderings are pinned to observations of generator-jhipster 9.4.0
-// (postgresql): table/column naming, constraint naming (fk_<table>__<column>,
+// (postgresql): table/column naming (see reserved.go — Hibernate-style
+// snake_case for tables/relationships, lodash snake_case for field columns,
+// both prefixed jhi_ when the result collides with a PostgreSQL reserved
+// keyword such as "order"), constraint naming (fk_<table>__<column>,
 // ux_<table>__<column>, rel_<src>__<dst> join tables), the shared
 // sequence_generator (START 1050 INCREMENT 50), the JHipster-internal
 // jhi_user/jhi_authority/jhi_user_authority tables, and the admin/user seed
@@ -96,23 +99,6 @@ func isLower(r rune) bool { return r >= 'a' && r <= 'z' }
 func isUpper(r rune) bool { return r >= 'A' && r <= 'Z' }
 func isDigit(r rune) bool { return r >= '0' && r <= '9' }
 
-// snake converts a camelCase identifier to the snake_case column/table name
-// JHipster's Hibernate naming strategy produces ("whenAt" -> "when_at").
-func snake(s string) string {
-	var b strings.Builder
-	for i, r := range s {
-		if isUpper(r) {
-			if i > 0 {
-				b.WriteByte('_')
-			}
-			b.WriteRune(unicode.ToLower(r))
-		} else {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 // sqlType maps a JDL field type to its native PostgreSQL column type, mirroring
 // what the generated Liquibase changelogs resolve to on postgresql. The boolean
 // is false for types this package does not know how to render.
@@ -187,7 +173,7 @@ func RenderSQL(m jdlgen.Model) string {
 	// When the relationship is Required (UML lower bound >= 1 on the
 	// referenced end), the FK column gets NOT NULL alongside any UNIQUE.
 	for _, e := range m.Entities {
-		table := snake(e.Name)
+		table := tableName(e.Name)
 		b.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n", table))
 		b.WriteString("    id bigint PRIMARY KEY")
 		for _, f := range e.Fields {
@@ -195,13 +181,16 @@ func RenderSQL(m jdlgen.Model) string {
 			if !ok {
 				typ = "varchar(255)"
 			}
-			b.WriteString(",\n    " + snake(f.Name) + " " + typ)
+			col := columnName(f.Name)
+			b.WriteString(",\n    " + col + " " + typ)
 			if isBlob(f.Type) {
-				b.WriteString(",\n    " + snake(f.Name) + "_content_type varchar(255)")
+				b.WriteString(",\n    " + col + "_content_type varchar(255)")
 			}
 		}
 		for _, r := range m.Relationships {
 			// Determine which entity owns the FK column for this relationship.
+			// Relationship-derived FK columns are never reserved-word prefixed
+			// (see relationshipColumnBase), only the table names are.
 			ownerTable, col, target, isOneToOne := "", "", "", false
 			switch r.Kind {
 			case "ManyToOne", "OneToOne":
@@ -209,16 +198,16 @@ func RenderSQL(m jdlgen.Model) string {
 					continue
 				}
 				ownerTable = table
-				col = snake(r.SrcField) + "_id"
-				target = snake(r.Dst)
+				col = relationshipColumnBase(r.SrcField) + "_id"
+				target = tableName(r.Dst)
 				isOneToOne = r.Kind == "OneToOne"
 			case "OneToMany":
-				if snake(r.Dst) != table {
+				if tableName(r.Dst) != table {
 					continue
 				}
 				ownerTable = table
-				col = snake(r.DstField) + "_id"
-				target = snake(r.Src)
+				col = relationshipColumnBase(r.DstField) + "_id"
+				target = tableName(r.Src)
 			default:
 				continue
 			}
@@ -241,25 +230,28 @@ func RenderSQL(m jdlgen.Model) string {
 
 	// ManyToMany join tables. Self-associations (Src == Dst) are NOT skipped:
 	// JHipster 9.4.0 emits a real join table for them (e.g. Order{orders} to
-	// Order{orders} → rel_order__orders). The same shape applies: owner column
-	// = snake(Src)+"_id", inverse column = snake(SrcField)+"_id", composite PK,
-	// and two fk_rel_<join>__<col> constraints both referencing the same table.
+	// Order{orders} → rel_jhi_order__orders, since ORDER is PostgreSQL-reserved).
+	// The same shape applies: owner column = tableName(Src)+"_id" (already
+	// reserved-prefixed if Src is), inverse column =
+	// relationshipColumnBase(SrcField)+"_id" (never reserved-prefixed),
+	// composite PK, and two fk_rel_<join>__<col> constraints both referencing
+	// the same table.
 	for _, r := range m.Relationships {
 		if r.Kind != "ManyToMany" {
 			continue
 		}
-		srcTable := snake(r.Src)
-		dstTable := snake(r.Dst)
+		srcTable := tableName(r.Src)
+		dstTable := tableName(r.Dst)
 		// Mirror JHipster's join-table shape for `ManyToMany Src{srcField} to
 		// Dst{dstField}` (observed in the pinned generator's changelogs): the
 		// table is named rel_<owner>__<collection field> (rel_course__tags),
-		// owner column = snake(Src)+"_id", inverse column = snake(SrcField)+"_id",
-		// composite PK (owner, inverse), and the two fk_rel_<join>__<col>
-		// constraints. DstField only names the mappedBy side and never a
-		// column.
-		join := "rel_" + srcTable + "__" + snake(r.SrcField)
+		// owner column = tableName(Src)+"_id", inverse column =
+		// relationshipColumnBase(SrcField)+"_id", composite PK (owner,
+		// inverse), and the two fk_rel_<join>__<col> constraints. DstField
+		// only names the mappedBy side and never a column.
+		join := "rel_" + srcTable + "__" + relationshipColumnBase(r.SrcField)
 		ownerCol := srcTable + "_id"
-		inverseCol := snake(r.SrcField) + "_id"
+		inverseCol := relationshipColumnBase(r.SrcField) + "_id"
 		b.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n", join))
 		b.WriteString("    " + ownerCol + " bigint NOT NULL,\n")
 		b.WriteString("    " + inverseCol + " bigint NOT NULL,\n")

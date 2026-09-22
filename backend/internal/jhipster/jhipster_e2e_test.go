@@ -35,6 +35,11 @@ func e2eDoc() domain.DiagramDocument {
 			{ID: "c4", Name: "Profile", Attributes: []domain.Attribute{{ID: "a4", Name: "bio", Type: "text"}}},
 			{ID: "c5", Name: "Enrollment", Attributes: []domain.Attribute{{ID: "a5", Name: "grade", Type: "int"}}},
 			{ID: "c6", Name: "Image", Attributes: []domain.Attribute{{ID: "a6", Name: "data", Type: "blob"}}},
+			// Order is a PostgreSQL-reserved table name (-> jhi_order) and
+			// "user" a PostgreSQL-reserved column name (-> jhi_user); both
+			// must come out prefixed here exactly as the real generator
+			// prefixes them.
+			{ID: "c7", Name: "Order", Attributes: []domain.Attribute{{ID: "a7", Name: "user", Type: "string"}}},
 		},
 		Relationships: []domain.Relationship{
 			// ManyToMany: Course{tags} -> Tag{courses}
@@ -43,6 +48,8 @@ func e2eDoc() domain.DiagramDocument {
 			{ID: "r2", SourceID: "c4", TargetID: "c3", Type: "association", SourceMultiplicity: strp("1"), TargetMultiplicity: strp("1")},
 			// OneToMany: Enrollment{students} -> Student{enrollment}
 			{ID: "r3", SourceID: "c5", TargetID: "c3", Type: "association", SourceMultiplicity: strp("1"), TargetMultiplicity: strp("*")},
+			// ManyToOne: Order{course} -> Course{orders}
+			{ID: "r4", SourceID: "c7", TargetID: "c1", Type: "association", SourceMultiplicity: strp("*"), TargetMultiplicity: strp("1")},
 		},
 	}
 }
@@ -137,6 +144,27 @@ func TestGenerateE2EAgainstRealGenerator(t *testing.T) {
 	}
 	if !changelogContains(entries, prefix, "data_content_type") {
 		t.Errorf("changelogs do not contain data_content_type (schema drift)")
+	}
+
+	// Reserved-keyword naming: ORDER (table) and USER (column) are both
+	// PostgreSQL-reserved in generator-jhipster 9.4.0's own list, so both
+	// come out jhi_-prefixed; our init SQL must match the real changelogs
+	// byte-for-byte on these names too, not just avoid a syntax error.
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS jhi_order (",
+		"jhi_user varchar(255)",
+	} {
+		if !strings.Contains(initSQL, want) {
+			t.Errorf("init SQL missing %q (reserved-keyword naming):\n%s", want, initSQL)
+		}
+	}
+	if strings.Contains(initSQL, "IF NOT EXISTS order (") {
+		t.Errorf("init SQL declares the unprefixed reserved table name \"order\":\n%s", initSQL)
+	}
+	for _, fragment := range []string{"jhi_order", "jhi_user"} {
+		if !changelogContains(entries, prefix, fragment) {
+			t.Errorf("changelogs do not contain %s (schema drift)", fragment)
+		}
 	}
 
 	// Internal JHipster tables and seeds must exist in our SQL.

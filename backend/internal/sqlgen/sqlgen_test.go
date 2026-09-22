@@ -117,20 +117,22 @@ func TestRenderSQLStructure(t *testing.T) {
 		"    db double precision",
 		"    flag boolean",
 		"    when_at timestamp",
-		"    date2 date",
+		"    date_2 date", // lodash snakeCase splits letters from digits ("date2" -> "date_2")
 		"    uid uuid",
 		"    body bytea",
 		"    body_content_type varchar(255)",
 		"    note text",
 		// OneToMany FK placement: Enrollment{student} -> Student{enrollments}
 		"CREATE TABLE IF NOT EXISTS student (",
-		// Self ManyToMany join table for Order{orders} to Order{orders}
-		"CREATE TABLE IF NOT EXISTS rel_order__orders (",
-		"    order_id bigint NOT NULL,",
+		// Self ManyToMany join table for Order{orders} to Order{orders}.
+		// ORDER is a PostgreSQL-reserved keyword, so the entity's own table
+		// (and every reference to it) is prefixed jhi_order.
+		"CREATE TABLE IF NOT EXISTS rel_jhi_order__orders (",
+		"    jhi_order_id bigint NOT NULL,",
 		"    orders_id bigint NOT NULL,",
-		"    PRIMARY KEY (order_id, orders_id)",
-		"ALTER TABLE rel_order__orders ADD CONSTRAINT fk_rel_order__orders__order_id FOREIGN KEY (order_id) REFERENCES order (id);",
-		"ALTER TABLE rel_order__orders ADD CONSTRAINT fk_rel_order__orders__orders_id FOREIGN KEY (orders_id) REFERENCES order (id);",
+		"    PRIMARY KEY (jhi_order_id, orders_id)",
+		"ALTER TABLE rel_jhi_order__orders ADD CONSTRAINT fk_rel_jhi_order__orders__jhi_order_id FOREIGN KEY (jhi_order_id) REFERENCES jhi_order (id);",
+		"ALTER TABLE rel_jhi_order__orders ADD CONSTRAINT fk_rel_jhi_order__orders__orders_id FOREIGN KEY (orders_id) REFERENCES jhi_order (id);",
 		// The old "self-association; no join table" comment must not remain.
 	}
 	for _, want := range wants {
@@ -246,11 +248,13 @@ func TestRenderSQLRequiredForeignKeys(t *testing.T) {
 	}
 	sql := sqlgen.RenderSQL(m)
 
-	wantOrderTable := "CREATE TABLE IF NOT EXISTS order (\n" +
+	// ORDER is PostgreSQL-reserved, so the entity's table (and every
+	// constraint name derived from it) is prefixed jhi_order.
+	wantOrderTable := "CREATE TABLE IF NOT EXISTS jhi_order (\n" +
 		"    id bigint PRIMARY KEY,\n" +
 		"    customer_id bigint NOT NULL,\n" +
 		"    store_id bigint,\n" +
-		"    profile_id bigint NOT NULL CONSTRAINT ux_order__profile_id UNIQUE\n" +
+		"    profile_id bigint NOT NULL CONSTRAINT ux_jhi_order__profile_id UNIQUE\n" +
 		");\n"
 	if !strings.Contains(sql, wantOrderTable) {
 		t.Errorf("order table missing required/optional FK columns, want block:\n%s\n---\n%s", wantOrderTable, sql)
@@ -262,6 +266,55 @@ func TestRenderSQLRequiredForeignKeys(t *testing.T) {
 		");\n"
 	if !strings.Contains(sql, wantWarehouseTable) {
 		t.Errorf("warehouse table missing required OneToMany FK column, want block:\n%s\n---\n%s", wantWarehouseTable, sql)
+	}
+}
+
+// TestRenderSQLReservedEntityName covers an entity whose name is a
+// PostgreSQL reserved keyword (Order -> jhi_order): its own table, a plain
+// ManyToOne FK column/constraint pointing at it from another entity, and a
+// self ManyToMany join table, all naming exactly as generator-jhipster 9.4.0
+// derives them (see internal/sqlgen/reserved.go for the pinned source
+// references).
+func TestRenderSQLReservedEntityName(t *testing.T) {
+	m := jdlgen.Model{
+		DiagramName: "ReservedTest",
+		Entities: []jdlgen.Entity{
+			{Name: "Order"},
+			{Name: "OrderLine", Fields: []jdlgen.Field{
+				{Name: "user", Type: "String"},    // USER is PostgreSQL-reserved -> jhi_user
+				{Name: "date", Type: "LocalDate"}, // DATE is NOT reserved -> date
+			}},
+		},
+		Relationships: []jdlgen.Relationship{
+			{Kind: "ManyToOne", Src: "OrderLine", Dst: "Order", SrcField: "order", DstField: "orderLines", Required: true},
+			{Kind: "ManyToMany", Src: "Order", Dst: "Order", SrcField: "orders", DstField: "orders"},
+		},
+	}
+	sql := sqlgen.RenderSQL(m)
+
+	wants := []string{
+		"CREATE TABLE IF NOT EXISTS jhi_order (",
+		"CREATE TABLE IF NOT EXISTS order_line (",
+		"    jhi_user varchar(255),",
+		"    date date",
+		"    order_id bigint NOT NULL",
+		"ALTER TABLE order_line ADD CONSTRAINT fk_order_line__order_id FOREIGN KEY (order_id) REFERENCES jhi_order (id);",
+		"CREATE TABLE IF NOT EXISTS rel_jhi_order__orders (",
+		"    jhi_order_id bigint NOT NULL,",
+		"    orders_id bigint NOT NULL,",
+		"    PRIMARY KEY (jhi_order_id, orders_id)",
+		"ALTER TABLE rel_jhi_order__orders ADD CONSTRAINT fk_rel_jhi_order__orders__jhi_order_id FOREIGN KEY (jhi_order_id) REFERENCES jhi_order (id);",
+		"ALTER TABLE rel_jhi_order__orders ADD CONSTRAINT fk_rel_jhi_order__orders__orders_id FOREIGN KEY (orders_id) REFERENCES jhi_order (id);",
+	}
+	for _, want := range wants {
+		if !strings.Contains(sql, want) {
+			t.Errorf("SQL missing %q\n---\n%s", want, sql)
+		}
+	}
+	// The broken, unprefixed table name must never appear as a standalone
+	// SQL identifier (PostgreSQL rejects `order` as a bare table name).
+	if strings.Contains(sql, "IF NOT EXISTS order (") {
+		t.Errorf("SQL declares the unprefixed reserved table name %q:\n%s", "order", sql)
 	}
 }
 
