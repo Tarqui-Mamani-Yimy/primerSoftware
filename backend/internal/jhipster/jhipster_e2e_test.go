@@ -40,6 +40,10 @@ func e2eDoc() domain.DiagramDocument {
 			// must come out prefixed here exactly as the real generator
 			// prefixes them.
 			{ID: "c7", Name: "Order", Attributes: []domain.Attribute{{ID: "a7", Name: "user", Type: "string"}}},
+			// "User" collides with JHipster's own built-in User entity; jdlgen
+			// must rename it to "AppUser" so the generator creates a real
+			// app_user table instead of silently merging/disregarding it.
+			{ID: "c8", Name: "User", Attributes: []domain.Attribute{{ID: "a8", Name: "nickname", Type: "string"}}},
 		},
 		Relationships: []domain.Relationship{
 			// ManyToMany: Course{tags} -> Tag{courses}
@@ -50,6 +54,8 @@ func e2eDoc() domain.DiagramDocument {
 			{ID: "r3", SourceID: "c5", TargetID: "c3", Type: "association", SourceMultiplicity: strp("1"), TargetMultiplicity: strp("*")},
 			// ManyToOne: Order{course} -> Course{orders}
 			{ID: "r4", SourceID: "c7", TargetID: "c1", Type: "association", SourceMultiplicity: strp("*"), TargetMultiplicity: strp("1")},
+			// ManyToOne: Order{appUser} -> AppUser{orders} (renamed User)
+			{ID: "r5", SourceID: "c7", TargetID: "c8", Type: "association", SourceMultiplicity: strp("*"), TargetMultiplicity: strp("1")},
 		},
 	}
 }
@@ -176,6 +182,20 @@ func TestGenerateE2EAgainstRealGenerator(t *testing.T) {
 		if !strings.Contains(initSQL, want) {
 			t.Errorf("init SQL missing %q", want)
 		}
+	}
+
+	// The UML class "User" collides with JHipster's built-in User entity, so
+	// jdlgen must rename it to AppUser; the real generator must then create
+	// a genuine app_user table (not merge/disregard it), and the internal
+	// jhi_user table must stay singular (no collision).
+	if !strings.Contains(initSQL, "CREATE TABLE IF NOT EXISTS app_user (") {
+		t.Errorf("init SQL missing renamed table app_user:\n%s", initSQL)
+	}
+	if strings.Count(initSQL, "CREATE TABLE IF NOT EXISTS jhi_user (") != 1 {
+		t.Errorf("init SQL must declare jhi_user exactly once (no collision), got:\n%s", initSQL)
+	}
+	if !changelogContains(entries, prefix, "app_user") {
+		t.Errorf("changelogs do not contain app_user (schema drift)")
 	}
 
 	// Patched datasource: Liquibase off + our database.

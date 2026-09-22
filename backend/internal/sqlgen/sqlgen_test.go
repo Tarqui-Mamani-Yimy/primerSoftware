@@ -359,6 +359,29 @@ func TestRenderSQLReservedEntityName(t *testing.T) {
 	}
 }
 
+// TestRenderSQLBuiltInEntityCollisionRenamed covers the full pipeline (UML
+// doc -> jdlgen.BuildModel -> sqlgen.RenderSQL) for a UML class named "User":
+// jdlgen renames it to "AppUser" (it would otherwise collide with
+// JHipster's built-in User entity), so the emitted table must be app_user,
+// never a second jhi_user colliding with the internal seeded table.
+func TestRenderSQLBuiltInEntityCollisionRenamed(t *testing.T) {
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "Shop",
+		Classes: []domain.UmlClass{
+			{ID: "c1", Name: "User", Attributes: []domain.Attribute{{ID: "a1", Name: "nickname", Type: "String"}}},
+		},
+	}
+	sql := sqlgen.RenderSQL(modelFromDoc(doc))
+
+	if !strings.Contains(sql, "CREATE TABLE IF NOT EXISTS app_user (") {
+		t.Errorf("SQL missing renamed table app_user:\n%s", sql)
+	}
+	if strings.Count(sql, "CREATE TABLE IF NOT EXISTS jhi_user (") != 1 {
+		t.Errorf("SQL must declare the internal jhi_user table exactly once (no collision), got:\n%s", sql)
+	}
+}
+
 func TestRenderCompose(t *testing.T) {
 	yml := sqlgen.RenderCompose("my-project")
 	for _, want := range []string{

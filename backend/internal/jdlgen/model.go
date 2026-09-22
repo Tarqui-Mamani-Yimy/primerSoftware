@@ -97,9 +97,20 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 			continue
 		}
 		base := EntityName(class.Name)
+		// A class that sanitizes to one of JHipster's built-in entities (User,
+		// Authority) would otherwise be silently merged/disregarded by the
+		// generator instead of created — see isJHipsterBuiltInEntity. Renaming
+		// it here, before EnsureUnique runs, also means relationships resolve
+		// to the renamed entity automatically (they look up idToEntity).
+		builtInCollision := isJHipsterBuiltInEntity(base)
+		if builtInCollision {
+			base = "App" + base
+		}
 		final := EnsureUnique(base, usedEntities)
 		reason := "Java identifier sanitization"
 		switch {
+		case builtInCollision:
+			reason = "collides with JHipster built-in entity"
 		case final != base:
 			reason = "name collision after sanitization"
 		case isJDLReservedWord(strings.TrimSuffix(base, "2")):

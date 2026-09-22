@@ -212,6 +212,104 @@ func TestEnsureUnique(t *testing.T) {
 	}
 }
 
+// TestBuildModelRenamesJHipsterBuiltInEntities covers the collision between a
+// UML class and one of JHipster's own internal entities (User, Authority):
+// generator-jhipster 9.4.0 merges a same-named JDL entity into its built-in
+// one (fields other than id and Src-side relationships are silently
+// disregarded, generators/base-application/internal/utils.js:38-70) instead
+// of creating it, so the class must be renamed before it ever reaches the
+// generator.
+func TestBuildModelRenamesJHipsterBuiltInEntities(t *testing.T) {
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "Shop",
+		Classes: []domain.UmlClass{
+			{ID: "c1", Name: "User"},
+			{ID: "c2", Name: "Order"},
+		},
+		Relationships: []domain.Relationship{
+			{ID: "r1", SourceID: "c2", TargetID: "c1", Type: "association",
+				SourceMultiplicity: strp("*"), TargetMultiplicity: strp("1")},
+		},
+	}
+	jdl, rep := jdlgen.Export(doc)
+
+	wantEntities := []string{"AppUser", "Order"}
+	if len(rep.Entities) != len(wantEntities) {
+		t.Fatalf("entities = %v, want %v", rep.Entities, wantEntities)
+	}
+	for i, want := range wantEntities {
+		if rep.Entities[i] != want {
+			t.Errorf("entities = %v, want %v", rep.Entities, wantEntities)
+			break
+		}
+	}
+	if !strings.Contains(jdl, "entity AppUser {") {
+		t.Errorf("JDL missing renamed entity AppUser:\n%s", jdl)
+	}
+	if strings.Contains(jdl, "entity User {") {
+		t.Errorf("JDL must not declare the colliding entity User:\n%s", jdl)
+	}
+	// Relationships must resolve to the renamed entity automatically.
+	if len(rep.Relationships) != 1 || rep.Relationships[0] != "Order{appUser required} to AppUser{orders}" {
+		t.Errorf("relationship = %v, want [Order{appUser required} to AppUser{orders}]", rep.Relationships)
+	}
+	joined := strings.Join(rep.Warnings, "\n")
+	if !strings.Contains(joined, `class "User" renamed to entity "AppUser" (collides with JHipster built-in entity)`) {
+		t.Errorf("warnings must explain the built-in collision, got:\n%s", joined)
+	}
+}
+
+// TestBuildModelRenamesAuthorityBuiltIn covers the same collision for
+// JHipster's built-in Authority entity.
+func TestBuildModelRenamesAuthorityBuiltIn(t *testing.T) {
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "Shop",
+		Classes: []domain.UmlClass{
+			{ID: "c1", Name: "Authority"},
+		},
+	}
+	_, rep := jdlgen.Export(doc)
+	if len(rep.Entities) != 1 || rep.Entities[0] != "AppAuthority" {
+		t.Fatalf("entities = %v, want [AppAuthority]", rep.Entities)
+	}
+	joined := strings.Join(rep.Warnings, "\n")
+	if !strings.Contains(joined, `class "Authority" renamed to entity "AppAuthority" (collides with JHipster built-in entity)`) {
+		t.Errorf("warnings must explain the built-in collision, got:\n%s", joined)
+	}
+}
+
+// TestBuildModelBuiltInEntityCollisionDeduplicates covers a UML model that
+// already has a class named "AppUser" alongside one named "User": the
+// renamed "User" must not silently overwrite "AppUser" (EnsureUnique must
+// still run after the App-prefix rename).
+func TestBuildModelBuiltInEntityCollisionDeduplicates(t *testing.T) {
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "Shop",
+		Classes: []domain.UmlClass{
+			{ID: "c1", Name: "AppUser"},
+			{ID: "c2", Name: "User"},
+		},
+	}
+	_, rep := jdlgen.Export(doc)
+	wantEntities := []string{"AppUser", "AppUser2"}
+	if len(rep.Entities) != len(wantEntities) {
+		t.Fatalf("entities = %v, want %v", rep.Entities, wantEntities)
+	}
+	for i, want := range wantEntities {
+		if rep.Entities[i] != want {
+			t.Errorf("entities = %v, want %v", rep.Entities, wantEntities)
+			break
+		}
+	}
+	joined := strings.Join(rep.Warnings, "\n")
+	if !strings.Contains(joined, `class "User" renamed to entity "AppUser2" (collides with JHipster built-in entity)`) {
+		t.Errorf("warnings must explain the deduplicated built-in collision, got:\n%s", joined)
+	}
+}
+
 func cardinalityDoc(srcMult, dstMult *string) domain.DiagramDocument {
 	return domain.DiagramDocument{
 		SchemaVersion: 1,

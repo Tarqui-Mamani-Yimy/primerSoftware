@@ -308,6 +308,33 @@ func isJDLReservedWord(s string) bool {
 	return reserved
 }
 
+// jhipsterBuiltInEntities lists JHipster's own internal entities that a
+// same-named JDL entity gets silently MERGED into rather than creating: see
+// generator-jhipster 9.4.0's
+// generators/base-application/generators/bootstrap/generator.js:101-102 —
+// `entityName === 'User'` or `'Authority'` (exact, case-sensitive) routes to
+// createUserEntity/createAuthorityEntity instead of the JDL definition, and
+// only the "id" field plus relationships declared on the OTHER side survive
+// (generators/base-application/internal/utils.js:38-70, console warnings
+// only). Our own sqlgen would also emit a table for the colliding entity
+// that collides with the internal jhi_user/jhi_authority tables (USER and
+// AUTHORITY are both PostgreSQL-reserved, see sqlgen/reserved.go), so
+// BuildModel renames the class outright instead of letting either of these
+// silent drops happen.
+var jhipsterBuiltInEntities = map[string]struct{}{
+	"User": {}, "Authority": {},
+}
+
+// isJHipsterBuiltInEntity reports whether name (an already-sanitized
+// EntityName result) collides with one of JHipster's built-in entities. The
+// comparison is exact/case-sensitive, matching the generator's own check —
+// EntityName always uppercases the first letter, so this only ever matches
+// the sanitized form, not arbitrary raw casing.
+func isJHipsterBuiltInEntity(name string) bool {
+	_, builtIn := jhipsterBuiltInEntities[name]
+	return builtIn
+}
+
 // EnsureUnique returns base when unused, otherwise base2, base3, … —
 // deterministically. The returned name is recorded in used.
 func EnsureUnique(base string, used map[string]struct{}) string {
