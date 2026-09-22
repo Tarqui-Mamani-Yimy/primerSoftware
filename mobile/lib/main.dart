@@ -13,6 +13,7 @@ import 'voice_commands.dart';
 import 'uml_mutations.dart';
 import 'manual_uml_controls.dart';
 import 'manual_uml_dialogs.dart';
+import 'manual_dialog_guard.dart';
 import 'realtime_service.dart';
 import 'artifact_service.dart';
 
@@ -467,6 +468,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
   // give the user a choice between overwriting (keep mine) and discarding
   // (reload) their local edit.
   UmlDocument? conflictRemote;
+  int documentGeneration = 0;
 
   @override
   void initState() {
@@ -592,6 +594,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       }
       voicePreview = null;
       voiceStatus = AppStrings.voiceCommandApplied;
+      documentGeneration++;
     });
     scheduleAutosave();
   }
@@ -631,6 +634,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
             realtimeStatus = AppStrings.realtimeConflict;
           } else {
             document = event.document;
+            documentGeneration++;
             name.text = event.document.name;
             document.reviewNumber = event.reviewNumber;
             document.version = event.version;
@@ -677,6 +681,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
           realtimeStatus = AppStrings.realtimeConflict;
         } else {
           document = remote;
+          documentGeneration++;
           name.text = remote.name;
           realtimeStatus = AppStrings.realtimeRemoteChanged;
         }
@@ -711,6 +716,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Future<void> deleteClass(UmlClass umlClass) async {
+    final dialogToken = _manualDialogToken();
     final count = document.relationships
         .where((relationship) =>
             relationship.sourceId == umlClass.id ||
@@ -732,7 +738,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
       deleteUmlClass(document, className: umlClass.name),
     );
@@ -848,6 +854,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       // checkpoint will be overwritten; the user is on the hook for that.
       document.version = remote.version;
       document.reviewNumber = remote.reviewNumber;
+      documentGeneration++;
       conflictRemote = null;
       dirty = false;
       scheduleAutosave();
@@ -857,6 +864,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       // the dirty flag.
       setState(() {
         document = remote;
+        documentGeneration++;
         name.text = remote.name;
         conflictRemote = null;
         saveStatus = AppStrings.saved;
@@ -868,9 +876,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   void addClass() {
     _invalidateVoiceUndo();
-    setState(() => document.classes.add(UmlClass(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        name: 'NewClass')));
+    setState(() {
+      document.classes.add(UmlClass(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          name: 'NewClass'));
+      documentGeneration++;
+    });
     scheduleAutosave();
   }
 
@@ -882,10 +893,30 @@ class _WorkspacePageState extends State<WorkspacePage> {
     return false;
   }
 
+  ManualDialogToken _manualDialogToken() => ManualDialogToken(
+        diagramId: document.id,
+        version: document.version,
+        reviewNumber: document.reviewNumber,
+        generation: documentGeneration,
+      );
+
+  bool _manualDialogStillCurrent(ManualDialogToken token) =>
+      mounted &&
+      conflictRemote == null &&
+      token.matches(
+        diagramId: document.id,
+        version: document.version,
+        reviewNumber: document.reviewNumber,
+        generation: documentGeneration,
+      );
+
   void _applyManualDocument(UmlDocument? updated) {
     if (updated == null || !_manualChangeAllowed()) return;
     _invalidateVoiceUndo();
-    setState(() => document = updated);
+    setState(() {
+      document = updated;
+      documentGeneration++;
+    });
     scheduleAutosave();
   }
 
@@ -893,8 +924,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
       '$prefix-${DateTime.now().microsecondsSinceEpoch}-$value';
 
   Future<void> addAttributeManually(UmlClass umlClass) async {
+    final dialogToken = _manualDialogToken();
     final form = await showAttributeForm(context);
-    if (form == null || !_manualChangeAllowed()) return;
+    if (form == null || !_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
       addUmlAttribute(
         document,
@@ -910,8 +942,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   Future<void> editAttributeManually(
       UmlClass umlClass, UmlAttribute attribute) async {
+    final dialogToken = _manualDialogToken();
     final form = await showAttributeForm(context, initial: attribute);
-    if (form == null || !_manualChangeAllowed()) return;
+    if (form == null || !_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
       updateUmlAttribute(
         document,
@@ -927,7 +960,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   Future<void> deleteAttributeManually(
       UmlClass umlClass, UmlAttribute attribute) async {
+    final dialogToken = _manualDialogToken();
     if (!await _confirmManualDelete()) return;
+    if (!_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
       deleteUmlAttribute(
         document,
@@ -938,8 +973,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Future<void> addMethodManually(UmlClass umlClass) async {
+    final dialogToken = _manualDialogToken();
     final form = await showMethodForm(context);
-    if (form == null || !_manualChangeAllowed()) return;
+    if (form == null || !_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
       addUmlMethod(
         document,
@@ -953,10 +989,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
-  Future<void> editMethodManually(
-      UmlClass umlClass, UmlMethod method) async {
+  Future<void> editMethodManually(UmlClass umlClass, UmlMethod method) async {
+    final dialogToken = _manualDialogToken();
     final form = await showMethodForm(context, initial: method);
-    if (form == null || !_manualChangeAllowed()) return;
+    if (form == null || !_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
       updateUmlMethod(
         document,
@@ -970,9 +1006,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
-  Future<void> deleteMethodManually(
-      UmlClass umlClass, UmlMethod method) async {
+  Future<void> deleteMethodManually(UmlClass umlClass, UmlMethod method) async {
+    final dialogToken = _manualDialogToken();
     if (!await _confirmManualDelete()) return;
+    if (!_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
       deleteUmlMethod(
         document,
@@ -984,8 +1021,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   Future<void> addRelationshipManually() async {
     if (document.classes.isEmpty) return;
+    final dialogToken = _manualDialogToken();
     final form = await showRelationshipForm(context, classes: document.classes);
-    if (form == null || !_manualChangeAllowed()) return;
+    if (form == null || !_manualDialogStillCurrent(dialogToken)) return;
     UmlClass? source;
     UmlClass? target;
     for (final item in document.classes) {
@@ -1008,12 +1046,13 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Future<void> editRelationshipManually(UmlRelationship relationship) async {
+    final dialogToken = _manualDialogToken();
     final form = await showRelationshipForm(
       context,
       classes: document.classes,
       initial: relationship,
     );
-    if (form == null || !_manualChangeAllowed()) return;
+    if (form == null || !_manualDialogStillCurrent(dialogToken)) return;
     UmlClass? source;
     UmlClass? target;
     for (final item in document.classes) {
@@ -1036,7 +1075,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Future<void> deleteRelationshipManually(UmlRelationship relationship) async {
+    final dialogToken = _manualDialogToken();
     if (!await _confirmManualDelete()) return;
+    if (!_manualDialogStillCurrent(dialogToken)) return;
     _applyManualDocument(
       deleteUmlRelationship(document, relationshipId: relationship.id),
     );
@@ -1118,6 +1159,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       _invalidateVoiceUndo();
       setState(() {
         document = restored;
+        documentGeneration++;
         name.text = restored.name;
         saveStatus = AppStrings.restored;
         dirty = false;
