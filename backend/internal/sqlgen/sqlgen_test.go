@@ -147,6 +147,47 @@ func TestRenderSQLStructure(t *testing.T) {
 	}
 }
 
+// TestRenderSQLNoDuplicateIDColumn asserts that a voice-created UML "id"
+// attribute (frontend/src/App.tsx defaults it to UUID) never produces a
+// second "id" column: BuildModel drops it, so RenderSQL's own synthesized
+// "id bigint PRIMARY KEY" stays the only id column PostgreSQL sees.
+func TestRenderSQLNoDuplicateIDColumn(t *testing.T) {
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "voice",
+		Classes: []domain.UmlClass{
+			{
+				ID: "c1", Name: "Cliente",
+				Attributes: []domain.Attribute{
+					{ID: "a1", Name: "id", Type: "UUID"},
+					{ID: "a2", Name: "nombre", Type: "string"},
+				},
+			},
+		},
+	}
+	m := modelFromDoc(doc)
+	sql := sqlgen.RenderSQL(m)
+
+	start := strings.Index(sql, "CREATE TABLE IF NOT EXISTS cliente (")
+	if start == -1 {
+		t.Fatalf("expected a cliente table, got:\n%s", sql)
+	}
+	end := strings.Index(sql[start:], ");")
+	if end == -1 {
+		t.Fatalf("unterminated cliente table, got:\n%s", sql)
+	}
+	block := sql[start : start+end]
+	if n := strings.Count(block, " id "); n != 1 {
+		t.Errorf("expected exactly one id column in the cliente table, got %d:\n%s", n, block)
+	}
+	if strings.Contains(block, "id uuid") {
+		t.Errorf("expected no id uuid column, got:\n%s", block)
+	}
+	if !strings.Contains(block, "    id bigint PRIMARY KEY") {
+		t.Errorf("expected the synthesized id bigint PRIMARY KEY column, got:\n%s", block)
+	}
+}
+
 // TestRenderSQLFKOwnershipMatchesColumnTable asserts that every FK column
 // declared inside a CREATE TABLE has its ALTER TABLE ... FOREIGN KEY on the
 // SAME table. A column declared in table A with a constraint on table B is

@@ -145,6 +145,18 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 			})
 		}
 		for _, attr := range class.Attributes {
+			if strings.EqualFold(strings.TrimSpace(attr.Name), "id") {
+				rep.Dropped = append(rep.Dropped, Dropped{
+					Kind:     "attribute",
+					Location: "class " + entity.Name + " attribute id",
+					Detail:   `UML attribute "id" dropped: JHipster generates the Long primary key column automatically, so declaring it again would emit a duplicate id column`,
+				})
+				if jdlType, known := jdlTypeFor(attr.Type); !known || jdlType != "Long" {
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+						`class %q attribute "id" (type %q) dropped in favor of the JHipster-generated Long primary key`, entity.Name, attr.Type))
+				}
+				continue
+			}
 			base := FieldName(attr.Name)
 			final := EnsureUnique(base, usedFields)
 			if final != attr.Name {

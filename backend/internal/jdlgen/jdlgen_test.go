@@ -440,6 +440,68 @@ func TestExportEdgeGolden(t *testing.T) {
 	}
 }
 
+// idAttributeDoc builds a document whose class carries a voice-created "id"
+// attribute (case-insensitive, with surrounding whitespace) alongside a
+// regular field, mirroring what the voice-command flow produces
+// (frontend/src/App.tsx) before generation.
+func idAttributeDoc(idType string) domain.DiagramDocument {
+	return domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "voice",
+		Classes: []domain.UmlClass{
+			{
+				ID: "c1", Name: "Cliente",
+				Attributes: []domain.Attribute{
+					{ID: "a1", Name: " Id ", Type: idType},
+					{ID: "a2", Name: "nombre", Type: "string"},
+				},
+			},
+		},
+	}
+}
+
+func TestBuildModelSkipsIDAttribute(t *testing.T) {
+	m, rep := jdlgen.BuildModel(idAttributeDoc("UUID"))
+	if len(m.Entities) != 1 {
+		t.Fatalf("expected 1 entity, got %+v", m.Entities)
+	}
+	entity := m.Entities[0]
+	for _, f := range entity.Fields {
+		if strings.EqualFold(f.Name, "id") {
+			t.Fatalf("expected no \"id\" field in the emitted Model, got %+v", entity.Fields)
+		}
+	}
+	if len(entity.Fields) != 1 || entity.Fields[0].Name != "nombre" {
+		t.Fatalf("expected only the \"nombre\" field to survive, got %+v", entity.Fields)
+	}
+
+	found := false
+	for _, d := range rep.Dropped {
+		if d.Kind == "attribute" && d.Location == "class Cliente attribute id" {
+			found = true
+			if !strings.Contains(d.Detail, "JHipster generates the Long primary key") {
+				t.Errorf("Dropped detail must explain the JHipster-generated primary key, got %q", d.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a Dropped entry for the id attribute, got %+v", rep.Dropped)
+	}
+
+	joined := strings.Join(rep.Warnings, "\n")
+	if !strings.Contains(joined, `attribute "id"`) {
+		t.Errorf("a UUID-typed id attribute must warn (it does not map to Long), got warnings:\n%s", joined)
+	}
+}
+
+func TestBuildModelSkipsIDAttributeNoWarningWhenLong(t *testing.T) {
+	_, rep := jdlgen.BuildModel(idAttributeDoc("Long"))
+	joined := strings.Join(rep.Warnings, "\n")
+	if strings.Contains(joined, `attribute "id"`) {
+		t.Errorf("a Long-typed id attribute must not warn, got warnings:\n%s", joined)
+	}
+}
+
 func TestExportUnknownRelationshipTypeSkipped(t *testing.T) {
 	doc := domain.DiagramDocument{
 		SchemaVersion: 1,
