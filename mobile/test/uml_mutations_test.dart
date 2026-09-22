@@ -1,0 +1,179 @@
+import 'package:ai_uml_architect_mobile/models.dart';
+import 'package:ai_uml_architect_mobile/uml_mutations.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('clone creates a detached document and preserves baselines', () {
+    final original = _document();
+    final copy = cloneUmlDocument(original);
+
+    expect(copy.toJson(), equals(original.toJson()));
+    copy.classes.first.name = 'Changed';
+    copy.classes.first.attributes.add(
+      const UmlAttribute(id: 'new', name: 'newField', type: 'String'),
+    );
+
+    expect(original.classes.first.name, 'User');
+    expect(original.classes.first.attributes, hasLength(1));
+    expect(copy.version, 7);
+    expect(copy.reviewNumber, 11);
+  });
+
+  test('adds an attribute without mutating the input', () {
+    final original = _document();
+    final updated = addUmlAttribute(
+      original,
+      className: 'User',
+      attributeId: 'email',
+      attributeName: 'email',
+      attributeType: 'String',
+    );
+
+    expect(updated, isNotNull);
+    expect(
+      updated!.classes.first.attributes.map((item) => item.name),
+      containsAll(<String>['id', 'email']),
+    );
+    expect(original.classes.first.attributes, hasLength(1));
+  });
+
+  test('adds a method without mutating the input', () {
+    final original = _document();
+    final updated = addUmlMethod(
+      original,
+      className: 'User',
+      methodId: 'validate',
+      methodName: 'validate',
+      returnType: 'bool',
+    );
+
+    expect(updated, isNotNull);
+    expect(updated!.classes.first.methods.single.returnType, 'bool');
+    expect(original.classes.first.methods, isEmpty);
+  });
+
+  test('creates a validated relationship and preserves baselines', () {
+    final original = _document();
+    final updated = createUmlRelationship(
+      original,
+      relationshipId: 'user-order',
+      sourceClassName: 'User',
+      targetClassName: 'Order',
+      type: 'association',
+      targetMultiplicity: '1..*',
+    );
+
+    expect(updated, isNotNull);
+    expect(updated!.relationships.single.sourceId, 'user');
+    expect(updated.relationships.single.targetId, 'order');
+    expect(updated.version, original.version);
+    expect(updated.reviewNumber, original.reviewNumber);
+    expect(original.relationships, isEmpty);
+  });
+
+  test('deletes a class and all connected relationships', () {
+    final original = _document(
+      relationships: const [
+        UmlRelationship(
+          id: 'user-order',
+          sourceId: 'user',
+          targetId: 'order',
+          type: 'association',
+        ),
+        UmlRelationship(
+          id: 'order-user',
+          sourceId: 'order',
+          targetId: 'user',
+          type: 'dependency',
+        ),
+      ],
+    );
+    final updated = deleteUmlClass(original, className: 'User');
+
+    expect(updated, isNotNull);
+    expect(updated!.classes.map((item) => item.name), ['Order']);
+    expect(updated.relationships, isEmpty);
+    expect(original.classes, hasLength(2));
+    expect(original.relationships, hasLength(2));
+  });
+
+  test(
+    'rejects missing, ambiguous, duplicate, and invalid requests unchanged',
+    () {
+      final original = _document(
+        duplicateUser: true,
+        relationships: const [
+          UmlRelationship(
+            id: 'existing',
+            sourceId: 'user',
+            targetId: 'order',
+            type: 'association',
+          ),
+        ],
+      );
+      final before = original.toJson();
+
+      expect(
+        addUmlAttribute(
+          original,
+          className: 'Missing',
+          attributeId: 'x',
+          attributeName: 'x',
+          attributeType: 'String',
+        ),
+        isNull,
+      );
+      expect(
+        addUmlMethod(
+          original,
+          className: 'User',
+          methodId: 'x',
+          methodName: 'x',
+          returnType: 'void',
+        ),
+        isNull,
+      );
+      expect(
+        createUmlRelationship(
+          original,
+          relationshipId: 'new',
+          sourceClassName: 'User',
+          targetClassName: 'Order',
+          type: 'association',
+        ),
+        isNull,
+      );
+      expect(deleteUmlClass(original, className: 'User'), isNull);
+      expect(original.toJson(), equals(before));
+    },
+  );
+}
+
+UmlDocument _document({
+  List<UmlRelationship> relationships = const [],
+  bool duplicateUser = false,
+}) {
+  final users = <UmlClass>[
+    UmlClass(
+      id: 'user',
+      name: 'User',
+      attributes: [
+        const UmlAttribute(id: 'id', name: 'id', type: 'UUID', isPk: true),
+      ],
+    ),
+  ];
+  if (duplicateUser) {
+    users.add(UmlClass(id: 'user-copy', name: 'User'));
+  }
+  return UmlDocument(
+    id: 'diagram-1',
+    version: 7,
+    reviewNumber: 11,
+    name: 'Orders',
+    classes: [
+      ...users,
+      UmlClass(id: 'order', name: 'Order'),
+    ],
+    relationships: relationships,
+  );
+}
