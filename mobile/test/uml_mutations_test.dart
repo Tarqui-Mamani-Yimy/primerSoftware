@@ -386,7 +386,14 @@ void main() {
       ),
       isNull,
     );
-    final withRelationship = _document(
+    final withRelationship = UmlDocument(
+      name: 'Associations',
+      classes: [
+        UmlClass(id: 'user', name: 'User'),
+        UmlClass(id: 'order', name: 'Order'),
+        UmlClass(
+            id: 'association', name: 'Membership', isAssociationClass: true),
+      ],
       relationships: const [
         UmlRelationship(
           id: 'user-order',
