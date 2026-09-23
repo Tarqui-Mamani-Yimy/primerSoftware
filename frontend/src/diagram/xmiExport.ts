@@ -1,4 +1,14 @@
-import { UMLClassNode, UMLRelationship } from '../types';
+import { UMLClassNode, UMLRelationship, Visibility } from '../types';
+
+// UML VisibilityKind literals. The app stores visibility as '+', '-', '#'
+// (and '~' for package, if it is ever introduced); unknown values are
+// omitted from the XMI rather than emitted verbatim.
+const visibilityKind = (value: Visibility): string | undefined => ({
+  '+': 'public',
+  '-': 'private',
+  '#': 'protected',
+  '~': 'package'
+} as Record<string, string>)[value];
 
 const escapeXml = (value: string) => value.replace(/[<>&'\"]/g, (character) => ({
   '<': '&lt;',
@@ -91,10 +101,13 @@ export const createDiagramXmiExport = (diagramName: string, classes: UMLClassNod
     if (relationship.type === 'dependency') {
       return [`<packagedElement xmi:type="uml:Dependency" xmi:id="${relationshipId}" client="${source}" supplier="${target}"${label}/>`];
     }
+    // The canvas draws the diamond at the source end (the whole), but per UML
+    // notation `aggregation` is set on the member end typed by the PART —
+    // i.e. the end opposite the whole, which is the target here.
     const aggregation = relationship.type === 'aggregation' ? 'shared' : relationship.type === 'composition' ? 'composite' : undefined;
     const sourceEnd = xmiId('associationEnd', `${relationshipId}:source`);
     const targetEnd = xmiId('associationEnd', `${relationshipId}:target`);
-    return [`<packagedElement xmi:type="uml:Association" xmi:id="${relationshipId}"${label} memberEnd="${sourceEnd} ${targetEnd}">${endpoint(sourceEnd, source, relationship.sourceMultiplicity, aggregation)}${endpoint(targetEnd, target, relationship.targetMultiplicity)}</packagedElement>`];
+    return [`<packagedElement xmi:type="uml:Association" xmi:id="${relationshipId}"${label} memberEnd="${sourceEnd} ${targetEnd}">${endpoint(sourceEnd, source, relationship.sourceMultiplicity)}${endpoint(targetEnd, target, relationship.targetMultiplicity, aggregation)}</packagedElement>`];
   });
 
   // Generalizations are owned by the specific classifier in UML, rather than by the model.
@@ -113,18 +126,23 @@ export const createDiagramXmiExport = (diagramName: string, classes: UMLClassNod
     if (relationship.type === 'generalization') {
       generalizationsBySource.set(relationship.sourceId, [...(generalizationsBySource.get(relationship.sourceId) ?? []), `<generalization xmi:id="${id}" general="${target}"${label}/>`]);
     } else {
-      realizationsBySource.set(relationship.sourceId, [...(realizationsBySource.get(relationship.sourceId) ?? []), `<interfaceRealization xmi:id="${id}" client="${source}" supplier="${target}"${label}/>`]);
+      realizationsBySource.set(relationship.sourceId, [...(realizationsBySource.get(relationship.sourceId) ?? []), `<interfaceRealization xmi:id="${id}" client="${source}" supplier="${target}" contract="${target}"${label}/>`]);
     }
   });
   const classifiersWithGeneralizations = classes.map((umlClass) => {
     const id = classIds.get(umlClass.id)!;
-    const attributes = umlClass.attributes.map((attribute, index) => {
+    const isEnumeration = umlClass.stereotype === '«Enum»';
+    const attributes = isEnumeration ? umlClass.attributes.map((attribute, index) => (
+      `<ownedLiteral xmi:type="uml:EnumerationLiteral" xmi:id="${xmiId('literal', `${umlClass.id}:${attribute.id || index}`)}" name="${escapeXml(attribute.name)}"/>`
+    )).join('') : umlClass.attributes.map((attribute, index) => {
       const type = resolveType(attribute.type);
-      return `<ownedAttribute xmi:type="uml:Property" xmi:id="${xmiId('attribute', `${umlClass.id}:${attribute.id || index}`)}" name="${escapeXml(attribute.name)}" visibility="${attribute.visibility}"${type ? ` type="${type}"` : ''}/>`;
+      const visibility = visibilityKind(attribute.visibility);
+      return `<ownedAttribute xmi:type="uml:Property" xmi:id="${xmiId('attribute', `${umlClass.id}:${attribute.id || index}`)}" name="${escapeXml(attribute.name)}"${visibility ? ` visibility="${visibility}"` : ''}${type ? ` type="${type}"` : ''}/>`;
     }).join('');
     const methods = umlClass.methods.map((method, index) => {
       const type = resolveType(method.returnType);
-      return `<ownedOperation xmi:type="uml:Operation" xmi:id="${xmiId('operation', `${umlClass.id}:${method.id || index}`)}" name="${escapeXml(method.name)}" visibility="${method.visibility}"${method.isAbstract ? ' isAbstract="true"' : ''}>${type ? `<ownedParameter xmi:type="uml:Parameter" xmi:id="${xmiId('return', `${umlClass.id}:${method.id || index}`)}" direction="return" type="${type}"/>` : ''}</ownedOperation>`;
+      const visibility = visibilityKind(method.visibility);
+      return `<ownedOperation xmi:type="uml:Operation" xmi:id="${xmiId('operation', `${umlClass.id}:${method.id || index}`)}" name="${escapeXml(method.name)}"${visibility ? ` visibility="${visibility}"` : ''}${method.isAbstract ? ' isAbstract="true"' : ''}>${type ? `<ownedParameter xmi:type="uml:Parameter" xmi:id="${xmiId('return', `${umlClass.id}:${method.id || index}`)}" direction="return" type="${type}"/>` : ''}</ownedOperation>`;
     }).join('');
     const abstract = umlClass.isAbstract || umlClass.stereotype === '«Abstract»' ? ' isAbstract="true"' : '';
     return `<packagedElement xmi:type="${classifierKind(umlClass)}" xmi:id="${id}" name="${escapeXml(umlClass.name)}"${abstract}>${attributes}${methods}${(generalizationsBySource.get(umlClass.id) ?? []).join('')}${(realizationsBySource.get(umlClass.id) ?? []).join('')}</packagedElement>`;
