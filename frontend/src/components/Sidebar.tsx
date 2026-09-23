@@ -16,12 +16,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'uml-canvas' as ActiveView,
       label: es.navigation.umlCanvas,
       icon: 'account_tree',
+      iconColor: null as string | null,
       badge: null
     },
     {
       id: 'backend-db-generator' as ActiveView,
       label: es.navigation.backend,
       icon: 'database',
+      iconColor: null as string | null,
       badge: null
     }
   ];
