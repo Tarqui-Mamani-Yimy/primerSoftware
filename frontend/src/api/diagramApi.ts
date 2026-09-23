@@ -122,6 +122,15 @@ export const realtimeApi = {
 
 /** The artifact endpoint generates the real Spring Boot/JPA backend on the
  * server (pinned generator-jhipster) and streams it as a zip. */
+export interface VoiceTranscription { text: string; }
+export const voiceApi = {
+  transcribe: (audio: Blob) => request<VoiceTranscription>('/voice/transcriptions', {
+    method: 'POST',
+    body: audio,
+    headers: { 'Content-Type': audio.type || 'audio/webm' },
+  }),
+};
+
 export const artifactApi = {
   generate: (projectId: string, diagramId: string, document: UMLDiagramDocument, config?: ArtifactConfig) =>
     requestFile(`/projects/${projectId}/diagrams/${diagramId}/artifact`, {

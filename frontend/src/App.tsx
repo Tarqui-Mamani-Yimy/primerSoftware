@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActiveView, UMLClassNode, Stereotype, UMLRelationship } from './types';
 import { createDiagramDocument } from './diagram/document';
+import { VoiceCommand } from './diagram/voiceCommands';
+import { validateRelationshipCreation } from './diagram/relationshipHelpers';
 import { downloadDiagramPng, downloadDiagramSvg } from './diagram/visualExport';
 import { downloadDiagramXmi } from './diagram/xmiExport';
 import { ApiError, artifactApi, authApi, diagramApi, projectApi, realtimeApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion, UMLDiagramDocument } from './api/diagramApi';
@@ -62,6 +64,8 @@ export default function App() {
   // the source of truth for "what to PUT on this flush", regardless of when
   // the timer was scheduled.
   const pendingSnapshotRef = useRef<{ classes: UMLClassNode[]; relationships: UMLRelationship[]; name: string } | null>(null);
+  // Voice undo is deliberately isolated from normal, remote, and manual edits.
+  const lastVoiceSnapshotRef = useRef<{ diagramId: string; classes: UMLClassNode[]; relationships: UMLRelationship[] } | null>(null);
 
   useEffect(() => { classesRef.current = classes; }, [classes]);
   useEffect(() => { relationshipsRef.current = relationships; }, [relationships]);
@@ -71,6 +75,8 @@ export default function App() {
   useEffect(() => { diagramReviewRef.current = diagramReview; }, [diagramReview]);
   useEffect(() => { userIdRef.current = userId; }, [userId]);
   useEffect(() => { activeProjectRef.current = activeProject; }, [activeProject]);
+
+  const invalidateVoiceUndo = () => { lastVoiceSnapshotRef.current = null; };
 
   const refreshDiagrams = async (projectId: string) => {
     const nextDiagrams = await diagramApi.list(projectId);
@@ -511,13 +517,14 @@ export default function App() {
   };
 
   const handleUpdateClass = (updated: UMLClassNode) => {
+    invalidateVoiceUndo();
     const next = classesRef.current.map((umlClass) => umlClass.id === updated.id ? updated : umlClass);
     classesRef.current = next;
     setClasses(next);
     scheduleSave(next);
   };
 
-  const handleFinishNodeDrag = () => scheduleSave();
+  const handleFinishNodeDrag = () => { invalidateVoiceUndo(); scheduleSave(); };
 
   const handleSelectClass = (id: string) => {
     if (id) setSelectedRelationshipId('');
@@ -530,6 +537,7 @@ export default function App() {
   };
 
   const handleUpdateRelationship = (updated: UMLRelationship) => {
+    invalidateVoiceUndo();
     const next = relationshipsRef.current.map((relationship) => relationship.id === updated.id ? updated : relationship);
     relationshipsRef.current = next;
     setRelationships(next);
@@ -537,6 +545,7 @@ export default function App() {
   };
 
   const handleDeleteRelationship = (id: string) => {
+    invalidateVoiceUndo();
     const next = relationshipsRef.current.filter((relationship) => relationship.id !== id);
     relationshipsRef.current = next;
     setRelationships(next);
@@ -559,6 +568,7 @@ export default function App() {
   };
 
   const handleAddRelationship = (relationship: UMLRelationship) => {
+    invalidateVoiceUndo();
     const next = [...relationshipsRef.current, relationship];
     relationshipsRef.current = next;
     setRelationships(next);
@@ -566,6 +576,7 @@ export default function App() {
   };
 
   const handleAddClass = (stereotype: Stereotype) => {
+    invalidateVoiceUndo();
     const newId = `entity_${Date.now()}`;
     const newName = stereotype === '«Enum»' ? 'OrderStatus' : `Entity${classes.length + 1}`;
     const newClass: UMLClassNode = {
@@ -593,7 +604,149 @@ export default function App() {
     setSelectedClassId(newId);
   };
 
+  const handleVoiceCommand = (command: VoiceCommand): { ok: boolean; message: string } => {
+    const diagram = diagramIdRef.current;
+    if (!diagram) return { ok: false, message: 'Seleccioná un diagrama antes de aplicar un comando de voz.' };
+
+    const rememberVoiceState = () => {
+      lastVoiceSnapshotRef.current = {
+        diagramId: diagram,
+        classes: JSON.parse(JSON.stringify(classesRef.current)) as UMLClassNode[],
+        relationships: JSON.parse(JSON.stringify(relationshipsRef.current)) as UMLRelationship[],
+      };
+    };
+    const matching = (name: string) => classesRef.current.filter((umlClass) => umlClass.name.localeCompare(name, 'es', { sensitivity: 'accent' }) === 0);
+    const resolveMemberTarget = (name: string) => {
+      const matches = matching(name);
+      if (matches.length !== 1) return { error: `La clase ${name} debe existir una sola vez.` };
+      if (matches[0].stereotype === '«Enum»') return { error: `No se pueden agregar miembros por voz a la enumeración ${name}.` };
+      return { target: matches[0] };
+    };
+
+    if (command.kind === 'undo-voice-command') {
+      const snapshot = lastVoiceSnapshotRef.current;
+      if (!snapshot || snapshot.diagramId !== diagram) return { ok: false, message: 'No hay un último cambio de voz para deshacer en este diagrama.' };
+      const restoredClasses = JSON.parse(JSON.stringify(snapshot.classes)) as UMLClassNode[];
+      const restoredRelationships = JSON.parse(JSON.stringify(snapshot.relationships)) as UMLRelationship[];
+      lastVoiceSnapshotRef.current = null;
+      classesRef.current = restoredClasses;
+      relationshipsRef.current = restoredRelationships;
+      setClasses(restoredClasses);
+      setRelationships(restoredRelationships);
+      setSelectedClassId('');
+      setSelectedRelationshipId('');
+      scheduleSave(restoredClasses, restoredRelationships);
+      return { ok: true, message: 'Último cambio realizado por voz deshecho.' };
+    }
+
+    if (command.kind === 'add-attribute' || command.kind === 'add-method') {
+      const resolved = resolveMemberTarget(command.className);
+      if ('error' in resolved) return { ok: false, message: resolved.error };
+      const target = resolved.target;
+      const duplicate = command.kind === 'add-attribute'
+        ? target.attributes.some((attribute) => attribute.name.localeCompare(command.name, 'es', { sensitivity: 'accent' }) === 0)
+        : target.methods.some((method) => method.name.localeCompare(command.name, 'es', { sensitivity: 'accent' }) === 0);
+      if (duplicate) return { ok: false, message: `${command.kind === 'add-attribute' ? 'El atributo' : 'El método'} ${command.name} ya existe en ${target.name}.` };
+      rememberVoiceState();
+      const createdAt = Date.now();
+      const next = classesRef.current.map((umlClass) => {
+        if (umlClass.id !== target.id) return umlClass;
+        return command.kind === 'add-attribute'
+          ? { ...umlClass, attributes: [...umlClass.attributes, { id: `attr_${createdAt}`, name: command.name, type: command.type, visibility: '+' as const }] }
+          : { ...umlClass, methods: [...umlClass.methods, { id: `method_${createdAt}`, name: command.name, returnType: command.returnType, visibility: '+' as const }] };
+      });
+      classesRef.current = next;
+      setClasses(next);
+      setSelectedRelationshipId('');
+      setSelectedClassId(target.id);
+      scheduleSave(next, relationshipsRef.current);
+      return { ok: true, message: command.kind === 'add-attribute' ? `Atributo ${command.name} agregado a ${target.name}.` : `Método ${command.name} agregado a ${target.name}.` };
+    }
+
+    if (command.kind === 'create-class') {
+      const duplicate = matching(command.name).length > 0;
+      if (duplicate) return { ok: false, message: `Ya existe una clase llamada ${command.name}.` };
+      rememberVoiceState();
+      const createdAt = Date.now();
+      const id = `entity_${createdAt}`;
+      const newClass: UMLClassNode = {
+        id, name: command.name, stereotype: '«Entity»', package: 'com.nexus.orders',
+        tableBinding: `t_${command.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
+        x: 150 + (classesRef.current.length % 3) * 60, y: 200 + (classesRef.current.length % 3) * 50, width: 220,
+        attributes: [{ id: `id_${createdAt}`, name: 'id', type: 'UUID', visibility: '+', isPk: true, annotations: ['@Id'] }], methods: [],
+      };
+      const next = [...classesRef.current, newClass];
+      classesRef.current = next;
+      setClasses(next);
+      setSelectedRelationshipId('');
+      setSelectedClassId(id);
+      scheduleSave(next, relationshipsRef.current);
+      return { ok: true, message: `Clase ${command.name} creada.` };
+    }
+
+    if (command.kind === 'create-relationship') {
+      const sources = matching(command.sourceName);
+      const targets = matching(command.targetName);
+      if (sources.length !== 1 || targets.length !== 1) {
+        return { ok: false, message: 'La relación requiere exactamente una clase origen y una clase destino existentes.' };
+      }
+      const source = sources[0];
+      const target = targets[0];
+      const existingMatches = relationshipsRef.current.filter((r) => r.sourceId === source.id && r.targetId === target.id);
+      if (existingMatches.length > 1) {
+        return { ok: false, message: 'Existe más de una relación entre esas clases; la actualización es ambigua.' };
+      }
+
+      if (existingMatches.length === 1) {
+        const existing = existingMatches[0];
+        const relationshipType = command.type ?? existing.type;
+        const otherRelationships = relationshipsRef.current.filter((r) => r.id !== existing.id);
+        const validation = validateRelationshipCreation(source.id, target.id, relationshipType, otherRelationships, source, target);
+        if (!validation.ok) return { ok: false, message: validation.reason ?? 'No se pudo actualizar la relación.' };
+        rememberVoiceState();
+        const updated: UMLRelationship = {
+          ...existing,
+          type: relationshipType,
+          sourceMultiplicity: command.sourceMultiplicity !== undefined ? command.sourceMultiplicity : existing.sourceMultiplicity,
+          targetMultiplicity: command.targetMultiplicity !== undefined ? command.targetMultiplicity : existing.targetMultiplicity,
+          label: command.label !== undefined ? command.label : existing.label,
+        };
+        const next = relationshipsRef.current.map((r) => (r.id === updated.id ? updated : r));
+        relationshipsRef.current = next;
+        setRelationships(next);
+        setSelectedClassId('');
+        setSelectedRelationshipId(updated.id);
+        scheduleSave(classesRef.current, next);
+        return { ok: true, message: `Relación actualizada: ${command.sourceName} con ${command.targetName}.` };
+      }
+
+      const relationshipType = command.type ?? 'association';
+      const validation = validateRelationshipCreation(source.id, target.id, relationshipType, relationshipsRef.current, source, target);
+      if (!validation.ok) return { ok: false, message: validation.reason ?? 'No se pudo crear la relación.' };
+      rememberVoiceState();
+      const relationship: UMLRelationship = {
+        id: `rel_${Date.now()}`,
+        sourceId: source.id,
+        targetId: target.id,
+        type: relationshipType,
+        ...(command.sourceMultiplicity !== undefined ? { sourceMultiplicity: command.sourceMultiplicity } : {}),
+        ...(command.targetMultiplicity !== undefined ? { targetMultiplicity: command.targetMultiplicity } : {}),
+        ...(command.label !== undefined ? { label: command.label } : {}),
+      };
+      const next = [...relationshipsRef.current, relationship];
+      relationshipsRef.current = next;
+      setRelationships(next);
+      setSelectedClassId('');
+      setSelectedRelationshipId(relationship.id);
+      scheduleSave(classesRef.current, next);
+      return { ok: true, message: `Relación creada: ${command.sourceName} con ${command.targetName}.` };
+    }
+
+    return { ok: false, message: 'Comando no reconocido.' };
+  };
+
   const handleAddAssociationClass = () => {
+    invalidateVoiceUndo();
     const newId = `association_${Date.now()}`;
     const newClass: UMLClassNode = {
       id: newId,
@@ -622,6 +775,7 @@ export default function App() {
   };
 
   const handleDeleteClass = (id: string) => {
+    invalidateVoiceUndo();
     const nextClasses = classesRef.current.filter(c => c.id !== id);
     const nextRelationships = relationshipsRef.current.filter(r => r.sourceId !== id && r.targetId !== id);
     const remainingRelIds = new Set(nextRelationships.map(r => r.id));
@@ -642,6 +796,7 @@ export default function App() {
   };
 
   const handleRenameDiagram = (name: string) => {
+    invalidateVoiceUndo();
     diagramNameRef.current = name;
     setDiagramName(name);
     scheduleSave(classesRef.current, relationshipsRef.current, name);
@@ -869,7 +1024,7 @@ export default function App() {
               onDeleteRelationship={handleDeleteRelationship}
               onUpdateClass={handleUpdateClass}
               onFinishNodeDrag={handleFinishNodeDrag}
-              onPersistChange={() => scheduleSave()}
+              onPersistChange={() => { invalidateVoiceUndo(); scheduleSave(); }}
               onAddClass={handleAddClass}
               onAddAssociationClass={handleAddAssociationClass}
               onAddRelationship={handleAddRelationship}
@@ -890,6 +1045,7 @@ export default function App() {
               onLoadVersions={() => { void loadVersions(); }}
               onRestoreVersion={(versionNumber) => { void restoreVersion(versionNumber); }}
               onCreateCheckpoint={() => setCheckpointOpen(true)}
+              onVoiceCommand={handleVoiceCommand}
             />
             {remoteNotice && !conflictSnapshot && (
               <div role="status" className="fixed bottom-4 left-1/2 z-40 w-[36rem] -translate-x-1/2 border border-[#4cd7f6] bg-[#1c2028] p-3 font-mono text-xs text-[#dfe2ee] shadow-xl">
