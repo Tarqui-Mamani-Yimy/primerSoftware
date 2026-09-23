@@ -223,6 +223,9 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 		entityFields[e.Name] = used
 	}
 	flattened := 0
+	// requiredEdges maps each entity holding a required FK to the entities it
+	// references, in document order, to detect required-FK cycles.
+	requiredEdges := map[string][]string{}
 	for _, rel := range doc.Relationships {
 		src, srcOK := idToEntity[rel.SourceID]
 		dst, dstOK := idToEntity[rel.TargetID]
@@ -248,6 +251,22 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 				r.Required = false
 				rep.Warnings = append(rep.Warnings, fmt.Sprintf(
 					`relationship %s: self-reference %q kept optional (a required self-FK makes the first row impossible to insert)`, rel.ID, src))
+			}
+			if r.Required {
+				// A required FK that closes a loop of required FKs across
+				// entities has the same problem as a self-reference: no
+				// table in the loop could receive its first row. The
+				// relationship that closes the loop (later in document
+				// order) stays optional.
+				holder, referenced := fkEnds(r)
+				if path := requiredPath(requiredEdges, referenced, holder); path != nil {
+					r.Required = false
+					rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+						`relationship %s: required foreign key from %q to %q kept optional (it closes the required cycle %s, so no row could be inserted first)`,
+						rel.ID, holder, referenced, strings.Join(append([]string{holder}, path...), " -> ")))
+				} else {
+					requiredEdges[holder] = append(requiredEdges[holder], referenced)
+				}
 			}
 			m.Relationships = append(m.Relationships, r)
 			rep.Relationships = append(rep.Relationships, renderRelationship(r))
@@ -381,6 +400,42 @@ func requiredEnd(card string, srcMultiplicity, dstMultiplicity *string) bool {
 	default: // ManyToMany
 		return false
 	}
+}
+
+// fkEnds returns the entity that holds the FK column and the entity it
+// references: Src holds it for ManyToOne/OneToOne, Dst for OneToMany.
+func fkEnds(r Relationship) (holder, referenced string) {
+	if r.Kind == "OneToMany" {
+		return r.Dst, r.Src
+	}
+	return r.Src, r.Dst
+}
+
+// requiredPath returns the entities on the first breadth-first path from
+// `from` to `to` through required FK edges (both ends included), or nil when
+// `to` is unreachable. Edge order is document order, so the result is
+// deterministic.
+func requiredPath(edges map[string][]string, from, to string) []string {
+	prev := map[string]string{from: ""}
+	queue := []string{from}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current == to {
+			var path []string
+			for node := to; node != ""; node = prev[node] {
+				path = append([]string{node}, path...)
+			}
+			return path
+		}
+		for _, next := range edges[current] {
+			if _, seen := prev[next]; !seen {
+				prev[next] = current
+				queue = append(queue, next)
+			}
+		}
+	}
+	return nil
 }
 
 // renderRelationship renders one body line of a JDL relationship block. The

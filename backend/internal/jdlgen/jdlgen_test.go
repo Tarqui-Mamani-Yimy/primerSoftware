@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -670,5 +671,84 @@ func TestExportUnknownRelationshipTypeSkipped(t *testing.T) {
 	}
 	if !strings.Contains(rep.Warnings[len(rep.Warnings)-1], `unknown type "telepathy"`) {
 		t.Errorf("expected unknown-type warning, got %v", rep.Warnings)
+	}
+}
+
+// cycleDoc builds classes a..n and one association per [src, dst, srcMult,
+// dstMult] tuple, in order, with relationship IDs r1..rN.
+func cycleDoc(classes []string, rels [][4]string) domain.DiagramDocument {
+	doc := domain.DiagramDocument{SchemaVersion: 1, Name: "cycle"}
+	for _, name := range classes {
+		doc.Classes = append(doc.Classes, domain.UmlClass{ID: strings.ToLower(name), Name: name})
+	}
+	for i, r := range rels {
+		doc.Relationships = append(doc.Relationships, domain.Relationship{
+			ID: fmt.Sprintf("r%d", i+1), SourceID: strings.ToLower(r[0]), TargetID: strings.ToLower(r[1]),
+			Type: "association", SourceMultiplicity: strp(r[2]), TargetMultiplicity: strp(r[3]),
+		})
+	}
+	return doc
+}
+
+// TestBuildModelBreaksRequiredForeignKeyCycles covers required FKs that form
+// a loop across entities: every NOT NULL column in the loop would make the
+// first row of each table impossible to insert, so the relationship that
+// closes the loop (the later one in document order) is kept optional.
+func TestBuildModelBreaksRequiredForeignKeyCycles(t *testing.T) {
+	cases := []struct {
+		name         string
+		classes      []string
+		rels         [][4]string
+		wantRequired []bool
+		wantWarning  string
+	}{
+		{name: "two entities pointing at each other",
+			classes:      []string{"Employee", "Department"},
+			rels:         [][4]string{{"Employee", "Department", "*", "1"}, {"Department", "Employee", "*", "1"}},
+			wantRequired: []bool{true, false},
+			wantWarning:  `relationship r2: required foreign key from "Department" to "Employee" kept optional (it closes the required cycle Department -> Employee -> Department, so no row could be inserted first)`},
+		{name: "three entity loop",
+			classes:      []string{"Alpha", "Beta", "Gamma"},
+			rels:         [][4]string{{"Alpha", "Beta", "*", "1"}, {"Beta", "Gamma", "*", "1"}, {"Gamma", "Alpha", "*", "1"}},
+			wantRequired: []bool{true, true, false},
+			wantWarning:  `relationship r3: required foreign key from "Gamma" to "Alpha" kept optional (it closes the required cycle Gamma -> Alpha -> Beta -> Gamma, so no row could be inserted first)`},
+		{name: "one to many holder is the destination",
+			classes:      []string{"Alpha", "Beta"},
+			rels:         [][4]string{{"Alpha", "Beta", "1", "*"}, {"Alpha", "Beta", "*", "1"}},
+			wantRequired: []bool{true, false},
+			wantWarning:  `relationship r2: required foreign key from "Alpha" to "Beta" kept optional (it closes the required cycle Alpha -> Beta -> Alpha, so no row could be inserted first)`},
+		{name: "chain without a loop stays required",
+			classes:      []string{"Alpha", "Beta", "Gamma"},
+			rels:         [][4]string{{"Alpha", "Beta", "*", "1"}, {"Beta", "Gamma", "*", "1"}},
+			wantRequired: []bool{true, true}},
+		{name: "optional edge does not close a loop",
+			classes:      []string{"Employee", "Department"},
+			rels:         [][4]string{{"Employee", "Department", "*", "1"}, {"Department", "Employee", "*", "0..1"}},
+			wantRequired: []bool{true, false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, rep := jdlgen.BuildModel(cycleDoc(tc.classes, tc.rels))
+			if len(m.Relationships) != len(tc.wantRequired) {
+				t.Fatalf("got %d relationships, want %d", len(m.Relationships), len(tc.wantRequired))
+			}
+			for i, want := range tc.wantRequired {
+				if m.Relationships[i].Required != want {
+					t.Errorf("relationship %d Required = %v, want %v", i+1, m.Relationships[i].Required, want)
+				}
+			}
+			var cycleWarnings []string
+			for _, w := range rep.Warnings {
+				if strings.Contains(w, "required cycle") {
+					cycleWarnings = append(cycleWarnings, w)
+				}
+			}
+			switch {
+			case tc.wantWarning == "" && len(cycleWarnings) > 0:
+				t.Errorf("unexpected cycle warnings: %v", cycleWarnings)
+			case tc.wantWarning != "" && (len(cycleWarnings) != 1 || cycleWarnings[0] != tc.wantWarning):
+				t.Errorf("cycle warnings = %v, want [%s]", cycleWarnings, tc.wantWarning)
+			}
+		})
 	}
 }
