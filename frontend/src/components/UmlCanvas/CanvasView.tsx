@@ -297,7 +297,7 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
             const selfPath = `M ${selfLoop.startX} ${selfLoop.startY} C ${selfLoop.controlX} ${selfLoop.topY}, ${selfLoop.controlX} ${selfLoop.bottomY}, ${selfLoop.endX} ${selfLoop.endY}`;
             const selfLabel = { x: selfLoop.controlX + 8, y: selfMidY };
             return (
-              <g key={relationship.id} style={{ pointerEvents: 'auto' }} onClick={(event) => { event.stopPropagation(); selectEdge(relationship.id); }}>
+              <g key={relationship.id} style={{ pointerEvents: 'auto' }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); selectEdge(relationship.id); }}>
                 {isSelf ? <>
                   <path d={selfPath} stroke="transparent" strokeWidth="18" fill="none" />
                   <path d={selfPath} stroke={isSelected ? '#ffffff' : color} strokeWidth={isSelected ? 3 : 2} fill="none" strokeDasharray={relationshipDash[relationship.type]} markerEnd={relationship.type === 'association' || relationship.type === 'aggregation' || relationship.type === 'composition' ? undefined : markerFor(relationship.type)} />
