@@ -506,6 +506,18 @@ func renderApplicationBlock(o Options, entities []string) string {
 		// what the generated artifact promises (GEN-02 contract).
 		b.WriteString("  service * with serviceImpl\n")
 		b.WriteString("  dto * with mapstruct\n")
+		// GBU-01: without `paginate` the generated *Resource#getAll ignores
+		// ?page=&size= and never sends X-Total-Count/Link, forcing every
+		// consumer (Postman, a separate frontend) to fetch entire collections.
+		// PAGINATE is a binary option (`paginate * with pagination`, see the
+		// pinned generator's dist/lib/jdl/core/parsing/lexer/option-tokens.js);
+		// FILTER is unary (`filter *`, no `with` clause) and generates the
+		// JPA Specification-based *QueryService/*Criteria classes consumed
+		// through query params like ?name.contains=. Both are valid inside the
+		// application block at the same grammar level as service/dto (see
+		// applicationSubDeclaration in dist/lib/jdl/core/parsing/jdl-parser.js).
+		b.WriteString("  paginate * with pagination\n")
+		b.WriteString("  filter *\n")
 	}
 	b.WriteString("}\n")
 	return b.String()

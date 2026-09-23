@@ -76,6 +76,8 @@ func TestExportArtifactIncludesApplicationBlock(t *testing.T) {
 		"entities Alpha",
 		"service * with serviceImpl",
 		"dto * with mapstruct",
+		"paginate * with pagination",
+		"filter *",
 		"entity Alpha {",
 		"  total BigDecimal",
 	} {
