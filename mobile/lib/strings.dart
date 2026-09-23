@@ -142,6 +142,7 @@ class AppStrings {
       'Hay una edición remota mientras tenés cambios locales.';
   static const realtimeRemoteChanged = 'Otra persona actualizó este diagrama.';
   static const realtimeDisconnected = 'Colaboración realtime desconectada';
+  static const realtimeReconnecting = 'Reconectando…';
   static const collaborators = 'Colaboradores en línea';
   static const generateBackend = 'Generar backend JHipster';
   static const generatingBackend = 'Generando backend…';

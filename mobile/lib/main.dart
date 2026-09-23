@@ -446,7 +446,8 @@ class WorkspacePage extends StatefulWidget {
   State<WorkspacePage> createState() => _WorkspacePageState();
 }
 
-class _WorkspacePageState extends State<WorkspacePage> {
+class _WorkspacePageState extends State<WorkspacePage>
+    with WidgetsBindingObserver {
   late UmlDocument document;
   late TextEditingController name;
   bool saving = false;
@@ -483,17 +484,29 @@ class _WorkspacePageState extends State<WorkspacePage> {
     super.initState();
     document = widget.document;
     name = TextEditingController(text: document.name);
+    WidgetsBinding.instance.addObserver(this);
     unawaited(connectRealtime());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     autosaveTimer?.cancel();
     name.dispose();
     unawaited(voiceService.dispose());
     realtimeSubscription?.cancel();
     unawaited(realtime?.dispose());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Coming back from the background is a common cause of a stale realtime
+    // connection (the OS may have suspended networking); trigger an
+    // immediate reconnect instead of waiting for the next backoff attempt.
+    if (state == AppLifecycleState.resumed) {
+      unawaited(realtime?.reconnectNow());
+    }
   }
 
   Future<void> toggleVoiceTranscription() async {
@@ -732,16 +745,28 @@ class _WorkspacePageState extends State<WorkspacePage> {
         unawaited(_applyRemoteChange(event));
       } else if (event is RealtimeErrorEvent) {
         setState(() => realtimeStatus = AppStrings.realtimeDisconnected);
+      } else if (event is RealtimeConnectionChanged) {
+        setState(() {
+          switch (event.state) {
+            case RealtimeConnectionState.connected:
+              realtimeStatus = AppStrings.realtimeConnected;
+              break;
+            case RealtimeConnectionState.reconnecting:
+              realtimeStatus = AppStrings.realtimeReconnecting;
+              break;
+            case RealtimeConnectionState.disconnected:
+              realtimeStatus = AppStrings.realtimeDisconnected;
+              break;
+          }
+        });
       }
     });
+    // DiagramRealtimeService.connect() never throws: connection failures and
+    // subsequent automatic retries are reported through the RealtimeConnectionChanged
+    // events handled above, which is what keeps realtimeStatus accurate.
+    setState(() => realtimeBusy = true);
     try {
-      setState(() => realtimeBusy = true);
       await realtime!.connect();
-      if (mounted)
-        setState(() => realtimeStatus = AppStrings.realtimeConnected);
-    } catch (_) {
-      if (mounted)
-        setState(() => realtimeStatus = AppStrings.realtimeDisconnected);
     } finally {
       if (mounted) setState(() => realtimeBusy = false);
     }
