@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ApiError, voiceApi } from '../../api/diagramApi';
 import { parseVoiceCommand, VoiceCommand } from '../../diagram/voiceCommands';
+import { VoiceCommandHelpPanel } from './VoiceCommandHelpPanel';
 
 interface VoiceCommandControlProps {
   disabled: boolean;
@@ -16,6 +17,7 @@ export const VoiceCommandControl: React.FC<VoiceCommandControlProps> = ({ disabl
   const [transcript, setTranscript] = useState('');
   const [command, setCommand] = useState<VoiceCommand | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -106,11 +108,15 @@ export const VoiceCommandControl: React.FC<VoiceCommandControlProps> = ({ disabl
       <button type="button" disabled={disabled || state === 'transcribing'} onClick={state === 'recording' ? stopRecording : startRecording} className="disabled:cursor-not-allowed disabled:text-[#86948a] hover:text-[#4edea3]" aria-label={state === 'recording' ? 'Detener grabación de voz' : 'Grabar comando de voz'}>
         {state === 'recording' ? 'Detener voz' : state === 'transcribing' ? 'Transcribiendo…' : 'Comando de voz'}
       </button>
+      <button type="button" onClick={() => setShowHelp(true)} className="border-l border-[#3c4a42] pl-2 hover:text-[#4edea3]" aria-label="Ver ayuda con los comandos de voz disponibles" title="Ayuda: comandos de voz">
+        Ayuda
+      </button>
     </div>
     {(transcript || notice) && <div role="status" aria-live="polite" className="absolute right-4 top-14 z-30 w-80 border border-[#4cd7f6] bg-[#1c2028] p-3 text-xs text-[#dfe2ee] shadow-xl">
       {transcript && <p><span className="text-[#bbcabf]">Transcripción:</span> {transcript}</p>}
       {notice && <p className="mt-2 text-[#bbcabf]">{notice}</p>}
       {command && <div className="mt-3 flex gap-2"><button type="button" onClick={confirm} className="border border-[#4edea3] px-2 py-1 text-[#4edea3]">Confirmar{command?.kind === 'undo-voice-command' ? ' deshacer' : `: ${commandLabel}`}</button><button type="button" onClick={resetPreview} className="border border-[#86948a] px-2 py-1">Cancelar</button></div>}
     </div>}
+    {showHelp && <VoiceCommandHelpPanel onClose={() => setShowHelp(false)} />}
   </div>;
 };

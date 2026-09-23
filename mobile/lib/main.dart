@@ -20,6 +20,7 @@ import 'artifact_service.dart';
 import 'image_import_flow.dart';
 import 'image_import_preview.dart';
 import 'image_picker_channel.dart';
+import 'voice_command_help.dart';
 
 void main() => runApp(UmlArchitectApp(api: ApiClient()));
 
@@ -1530,13 +1531,22 @@ class _WorkspacePageState extends State<WorkspacePage>
                             onCancel: cancelVoicePreview,
                           ),
                         const SizedBox(height: 8),
-                        FilledButton.icon(
-                          onPressed:
-                              voiceBusy ? null : toggleVoiceTranscription,
-                          icon: Icon(voiceRecording ? Icons.stop : Icons.mic),
-                          label: Text(voiceRecording
-                              ? AppStrings.stopAndTranscribe
-                              : AppStrings.recordVoice),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed:
+                                    voiceBusy ? null : toggleVoiceTranscription,
+                                icon: Icon(
+                                    voiceRecording ? Icons.stop : Icons.mic),
+                                label: Text(voiceRecording
+                                    ? AppStrings.stopAndTranscribe
+                                    : AppStrings.recordVoice),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const VoiceCommandHelpButton(),
+                          ],
                         ),
                       ]),
                 ),

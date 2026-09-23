@@ -156,4 +156,7 @@ class AppStrings {
   static const imageImportFailed = 'No se pudo importar la imagen UML.';
   static const classesImported = 'clases detectadas';
   static const relationshipsImported = 'relaciones detectadas';
+  static const voiceCommandHelpButton = 'Ayuda';
+  static const voiceCommandHelpTitle = 'Comandos de voz';
+  static const voiceCommandHelpNotesTitle = 'Notas';
 }
