@@ -1,0 +1,1 @@
+ /home/yimy/proyectos/software/primer/ai-uml-architect/mobile/.dart_tool/flutter_build/535137bce09500f459a395c5695f2a3f/build_hooks_result.json:  /home/yimy/flutter/bin/cache/dart-sdk/version /home/yimy/proyectos/software/primer/ai-uml-architect/mobile/.dart_tool/package_config.json /home/yimy/proyectos/software/primer/ai-uml-architect/mobile/pubspec.yaml

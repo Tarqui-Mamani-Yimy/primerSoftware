@@ -1,13 +1,4 @@
--- V1: create the Go-owned schema and development seed.
--- Replicates the Java Flyway V1 authority (tables, indexes, dev seeds) without
--- hibernate ddl-auto: the schema only ever changes through these versioned
--- files. Every statement is idempotent so V1 can apply over a pre-existing
--- database (for example one provisioned by base.sql) without 42P07/23505:
--- tables and indexes use IF NOT EXISTS and the fixed-ID dev seed rows skip on
--- conflict. Pre-existing tables with a colliding name (base.sql's
--- refresh_tokens) are preserved and never dropped; the Go refresh-token store
--- is served by the Go-owned table created in the isolated uml_architect
--- database (see the runbook).
+
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY,
   display_name VARCHAR(150) NOT NULL,
@@ -73,9 +64,7 @@ BEGIN
   END IF;
 END $$;
 
--- Development-only identities. Password for every account is: Password123!
--- ON CONFLICT makes the seed safe to re-run over a database that already
--- holds these fixed IDs or unique keys.
+
 INSERT INTO users (id, display_name, email, password_hash) VALUES
  ('11111111-1111-1111-1111-111111111111','Ana Fernández','ana@example.com','$2y$10$0po1d5ULCpVopbelx2gsj.6UfMTCpVQka2C1LubEfBhi.aK.9.VmO'),
  ('22222222-2222-2222-2222-222222222222','Bruno Quispe','bruno@example.com','$2y$10$0po1d5ULCpVopbelx2gsj.6UfMTCpVQka2C1LubEfBhi.aK.9.VmO'),

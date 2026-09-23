@@ -1,0 +1,1 @@
+ /home/yimy/proyectos/software/primer/ai-uml-architect/mobile/.dart_tool/flutter_build/535137bce09500f459a395c5695f2a3f/native_assets.json: 

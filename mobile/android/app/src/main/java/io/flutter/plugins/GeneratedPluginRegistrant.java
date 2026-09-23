@@ -31,6 +31,11 @@ public final class GeneratedPluginRegistrant {
       Log.e(TAG, "Error registering plugin jni_flutter, com.github.dart_lang.jni_flutter.JniFlutterPlugin", e);
     }
     try {
+      flutterEngine.getPlugins().add(new dev.fluttercommunity.plus.share.SharePlusPlugin());
+    } catch (Exception e) {
+      Log.e(TAG, "Error registering plugin share_plus, dev.fluttercommunity.plus.share.SharePlusPlugin", e);
+    }
+    try {
       flutterEngine.getPlugins().add(new com.skynodigital.whisper_cpp_flutter.WhisperCppFlutterPlugin());
     } catch (Exception e) {
       Log.e(TAG, "Error registering plugin whisper_cpp_flutter_plus, com.skynodigital.whisper_cpp_flutter.WhisperCppFlutterPlugin", e);
