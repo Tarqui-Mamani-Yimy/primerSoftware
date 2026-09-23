@@ -236,8 +236,8 @@ func mapError(w http.ResponseWriter, err error) bool {
 // conflictEnvelope is the 409 body: the standard message envelope plus the
 // current document so the client can reload without a second round-trip.
 type conflictEnvelope struct {
-	Message string                   `json:"message"`
-	Current domain.DiagramDocument    `json:"current"`
+	Message string                 `json:"message"`
+	Current domain.DiagramDocument `json:"current"`
 }
 
 func (s *Server) handleAssigned(w http.ResponseWriter, r *http.Request) {
@@ -524,7 +524,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // withCORS mirrors SecurityConfig's CorsConfigurationSource: the single
-// configured origin, GET/POST/PUT/OPTIONS methods, Content-Type, If-Match, and X-Checkpoint-Message headers on /api/**.
+// configured origin, GET/POST/PUT/OPTIONS methods, Content-Type, If-Match,
+// X-Checkpoint-Message, and X-Diagram-Review headers on /api/**.
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -534,7 +535,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", s.origin)
 				w.Header().Set("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, X-Checkpoint-Message")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, X-Checkpoint-Message, X-Diagram-Review")
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return

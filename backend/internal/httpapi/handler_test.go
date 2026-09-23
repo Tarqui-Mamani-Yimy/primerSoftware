@@ -335,6 +335,9 @@ func TestCORSBehavior(t *testing.T) {
 	if rec.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
 		t.Errorf("preflight must echo the configured origin, got %q", rec.Header().Get("Access-Control-Allow-Origin"))
 	}
+	if !strings.Contains(rec.Header().Get("Access-Control-Allow-Headers"), "X-Diagram-Review") {
+		t.Errorf("preflight must allow X-Diagram-Review, got %q", rec.Header().Get("Access-Control-Allow-Headers"))
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
 	req.Header.Set("Origin", "https://evil.example.com")
