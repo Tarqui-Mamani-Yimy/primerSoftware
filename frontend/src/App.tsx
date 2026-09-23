@@ -19,6 +19,7 @@ import { CheckpointDialog } from './components/UmlCanvas/CheckpointDialog';
 import { ConflictBanner } from './components/UmlCanvas/ConflictBanner';
 import { es } from './i18n/es';
 
+
 type AppScreen = 'login' | 'projects' | 'workspace';
 type PersistenceState = 'offline' | 'saving' | 'saved' | 'error' | 'conflict';
 
