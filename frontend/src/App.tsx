@@ -8,6 +8,7 @@ import { downloadDiagramXmi } from './diagram/xmiExport';
 import { BoundImageImportPreview, confirmImageImport, ImageImportBinding, isImportPreviewCurrent } from './diagram/imageImportFlow';
 import { ApiError, artifactApi, authApi, diagramApi, imageImportApi, projectApi, realtimeApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramUpdateOptions, DiagramVersion } from './api/diagramApi';
 import { RealtimeClient, buildRealtimeWsUrl, PresenceMember } from './api/realtime';
+import { nextReconnectAction, INITIAL_RECONNECT_STATE, ReconnectState } from './api/reconnectPolicy';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { CanvasView } from './components/UmlCanvas/CanvasView';
@@ -56,7 +57,7 @@ export default function App() {
   const userIdRef = useRef(userId);
   const realtimeClientRef = useRef<RealtimeClient | null>(null);
   const realtimeGenRef = useRef(0);
-  const reconnectAttemptsRef = useRef(0);
+  const reconnectStateRef = useRef<ReconnectState>(INITIAL_RECONNECT_STATE);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
   const activeProjectRef = useRef(activeProject);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
@@ -295,7 +296,7 @@ export default function App() {
     pendingSnapshotRef.current = null;
     setPersistenceErrorMessage(null);
     realtimeGenRef.current += 1;
-    reconnectAttemptsRef.current = 0;
+    reconnectStateRef.current = INITIAL_RECONNECT_STATE;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = undefined;
@@ -314,9 +315,12 @@ export default function App() {
   // socket callbacks from a previous diagram/project are dropped instead
   // of being applied to the wrong document.
   const setupRealtime = useCallback(async (project: AssignedProject, id: string) => {
-    // NOTE: reconnectAttemptsRef is deliberately NOT reset here. The cap of
-    // 5 must be real across reconnect loops; it resets only on a stable
-    // connect (snapshot received) or on explicit open/change (clearSaveState).
+    // NOTE: reconnectStateRef is deliberately NOT reset here. Backoff must
+    // stay real across reconnect loops; it resets only on a confirmed
+    // snapshot (see onSnapshot below) or on explicit open/change
+    // (clearSaveState). There is no attempt cap: an outage keeps retrying
+    // with growing backoff (see api/reconnectPolicy.ts) until it recovers
+    // or the diagram/project changes.
     const generation = ++realtimeGenRef.current;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
@@ -326,25 +330,45 @@ export default function App() {
     realtimeClientRef.current = null;
     setPresenceMembers([]);
     setRealtimeState('connecting');
-    let ticket: string;
-    try {
-      const issued = await realtimeApi.ticket(project.id, id);
-      ticket = issued.ticket;
-    } catch {
-      if (realtimeGenRef.current === generation) setRealtimeState('unavailable');
-      return;
-    }
-    if (realtimeGenRef.current !== generation) return;
     const stillCurrent = () =>
       realtimeGenRef.current === generation &&
       activeProjectRef.current?.id === project.id &&
       diagramIdRef.current === id;
+    let ticket: string;
+    try {
+      const issued = await realtimeApi.ticket(project.id, id);
+      ticket = issued.ticket;
+    } catch (error) {
+      if (!stillCurrent()) return;
+      // Auth/membership failures (401/403/404) are not transient — retrying
+      // would fail the same way — so they stop the loop. Any other ticket
+      // error (network blip, 5xx, timeout) is retried with backoff, same as
+      // an unexpected socket close.
+      const retryable = !(error instanceof ApiError && [401, 403, 404].includes(error.status));
+      const decision = nextReconnectAction(reconnectStateRef.current, { kind: 'ticket-error', retryable });
+      reconnectStateRef.current = decision.state;
+      if (decision.action.kind === 'stop') {
+        setRealtimeState('unavailable');
+        return;
+      }
+      setRealtimeState('connecting');
+      if (decision.action.kind === 'schedule-retry') {
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = undefined;
+          if (stillCurrent()) void setupRealtime(project, id);
+        }, decision.action.delayMs);
+      }
+      return;
+    }
+    if (!stillCurrent()) return;
     const client = new RealtimeClient(buildRealtimeWsUrl(project.id, id, ticket), {
       onSnapshot: (snapshot) => {
         if (!stillCurrent()) return;
         // Stable connect proof: a snapshot for the current document resets
-        // the reconnect budget.
-        reconnectAttemptsRef.current = 0;
+        // the reconnect backoff and marks the connection live. Only this
+        // event resets backoff — not merely opening the socket.
+        reconnectStateRef.current = nextReconnectAction(reconnectStateRef.current, { kind: 'snapshot-received' }).state;
+        setRealtimeState('live');
         setPresenceMembers(snapshot.members ?? []);
         // Adopt the snapshot baseline when it is newer and the editor has
         // no unsaved work; a dirty editor keeps its baseline and resolves
@@ -399,22 +423,23 @@ export default function App() {
           return;
         }
         // Unexpected close (the ticket is one-shot, so reconnect with a
-        // fresh ticket). Bounded: after 5 failed attempts stay unavailable
-        // until the next diagram open or explicit save flow.
-        if (reconnectAttemptsRef.current >= 5) {
-          setRealtimeState('unavailable');
-          return;
-        }
-        reconnectAttemptsRef.current += 1;
+        // fresh ticket). Unbounded: backoff grows to 30s and holds there
+        // until the connection recovers — never stops on attempt count.
+        const decision = nextReconnectAction(reconnectStateRef.current, { kind: 'socket-closed' });
+        reconnectStateRef.current = decision.state;
         setRealtimeState('connecting');
-        reconnectTimerRef.current = setTimeout(() => {
-          if (stillCurrent()) void setupRealtime(project, id);
-        }, 2000);
+        if (decision.action.kind === 'schedule-retry') {
+          reconnectTimerRef.current = setTimeout(() => {
+            reconnectTimerRef.current = undefined;
+            if (stillCurrent()) void setupRealtime(project, id);
+          }, decision.action.delayMs);
+        }
       },
     });
     realtimeClientRef.current = client;
     client.connect();
-    setRealtimeState('live');
+    // 'live' is set only once the snapshot confirms the handshake (see
+    // onSnapshot above); until then the UI keeps showing 'connecting'.
   }, [applyDocument]);
 
   // beforeunload / visibilitychange are the hooks React unmount misses. A
@@ -446,6 +471,40 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisibility);
     return () => { window.removeEventListener('beforeunload', onBeforeUnload); document.removeEventListener('visibilitychange', onVisibility); };
   }, [flushNow, persistDiagram]);
+
+  // Coming back online or the tab becoming visible again is a common cause
+  // of a stale realtime socket (the OS/browser can suspend networking in
+  // the background), so trigger an immediate reconnect instead of waiting
+  // out the current backoff delay. Only acts when a diagram is open and the
+  // connection is not already live (decided by reconnectPolicy, mirroring
+  // mobile's reconnectNow()). setupRealtime's own generation token and
+  // top-of-function timer clear keep this from ever racing a concurrent
+  // setup.
+  useEffect(() => {
+    const triggerImmediateReconnect = (kind: 'network-online' | 'document-visible') => {
+      const project = activeProjectRef.current;
+      const id = diagramIdRef.current;
+      if (!project || !id) return;
+      const decision = nextReconnectAction(reconnectStateRef.current, { kind });
+      reconnectStateRef.current = decision.state;
+      if (decision.action.kind !== 'connect-now') return;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = undefined;
+      }
+      void setupRealtime(project, id);
+    };
+    const onOnline = () => triggerImmediateReconnect('network-online');
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') triggerImmediateReconnect('document-visible');
+    };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [setupRealtime]);
 
   useEffect(() => () => { void flushNow(); }, [flushNow]);
 
