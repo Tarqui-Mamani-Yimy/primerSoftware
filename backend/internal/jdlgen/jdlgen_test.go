@@ -105,6 +105,41 @@ func TestEntityAndFieldNameCasing(t *testing.T) {
 	}
 }
 
+// TestTransliteration covers GBU-03: EntityName/FieldName must map accented
+// Latin letters and ñ/ç to their ASCII base letter instead of dropping them,
+// so a class or attribute named in Spanish keeps a readable Java identifier
+// ("contraseña" -> "contrasena", not "contrasea").
+func TestTransliteration(t *testing.T) {
+	entityCases := []struct{ input, want string }{
+		{"Dirección", "Direccion"},
+		{"Año", "Ano"},
+		{"Niño", "Nino"},
+		{"Façade", "Facade"},
+	}
+	for _, tc := range entityCases {
+		t.Run("entity "+tc.input, func(t *testing.T) {
+			if got := jdlgen.EntityName(tc.input); got != tc.want {
+				t.Errorf("EntityName(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+	fieldCases := []struct{ input, want string }{
+		{"contraseña", "contrasena"},
+		{"dirección", "direccion"},
+		{"año", "ano"},
+		{"código", "codigo"},
+		{"núm", "num"},
+		{"peculiaridad", "peculiaridad"}, // no diacritics: unaffected
+	}
+	for _, tc := range fieldCases {
+		t.Run("field "+tc.input, func(t *testing.T) {
+			if got := jdlgen.FieldName(tc.input); got != tc.want {
+				t.Errorf("FieldName(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 // jdlReservedNamesDriveTheParser covers the root-cause fix: any field or
 // entity name that collides exactly with a JDL lexer keyword breaks the
 // pinned generator's parser (MismatchedTokenException), so such names must
@@ -190,6 +225,37 @@ func TestExportRenamesJDLReservedNames(t *testing.T) {
 		`attribute "baseName" renamed to field "baseName2" (JDL reserved word`,
 		`attribute "readOnly" renamed to field "readOnly2" (JDL reserved word`,
 		`class "OneToOne" renamed to entity "OneToOne2" (JDL reserved word`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("warnings must contain %q, got:\n%s", want, joined)
+		}
+	}
+}
+
+// TestTransliterationWarningReason covers GBU-03's accuracy requirement: the
+// rename warning must say "transliterated to ASCII" (not the generic "Java
+// identifier sanitization") when accented letters are the actual cause.
+func TestTransliterationWarningReason(t *testing.T) {
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "voice",
+		Classes: []domain.UmlClass{
+			{ID: "c1", Name: "Dirección", Attributes: []domain.Attribute{
+				{ID: "a1", Name: "contraseña", Type: "String"},
+			}},
+		},
+	}
+	jdl, rep := jdlgen.Export(doc)
+	if !strings.Contains(jdl, "entity Direccion {") {
+		t.Errorf("JDL missing transliterated entity Direccion:\n%s", jdl)
+	}
+	if !strings.Contains(jdl, "  contrasena String") {
+		t.Errorf("JDL missing transliterated field contrasena:\n%s", jdl)
+	}
+	joined := strings.Join(rep.Warnings, "\n")
+	for _, want := range []string{
+		`class "Dirección" renamed to entity "Direccion" (transliterated to ASCII)`,
+		`class "Direccion" attribute "contraseña" renamed to field "contrasena" (transliterated to ASCII)`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("warnings must contain %q, got:\n%s", want, joined)

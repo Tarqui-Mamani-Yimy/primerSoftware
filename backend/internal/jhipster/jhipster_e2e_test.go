@@ -31,7 +31,12 @@ func e2eDoc() domain.DiagramDocument {
 		Classes: []domain.UmlClass{
 			{ID: "c1", Name: "Course", Attributes: []domain.Attribute{{ID: "a1", Name: "title", Type: "string"}}},
 			{ID: "c2", Name: "Tag", Attributes: []domain.Attribute{{ID: "a2", Name: "label", Type: "string"}}},
-			{ID: "c3", Name: "Student", Attributes: []domain.Attribute{{ID: "a3", Name: "name", Type: "String"}}},
+			// "contraseña" exercises GBU-03 transliteration end to end: the field
+		// must survive as "contrasena", not the accent-dropped "contrasea".
+		{ID: "c3", Name: "Student", Attributes: []domain.Attribute{
+			{ID: "a3", Name: "name", Type: "String"},
+			{ID: "a3b", Name: "contraseña", Type: "String"},
+		}},
 			{ID: "c4", Name: "Profile", Attributes: []domain.Attribute{{ID: "a4", Name: "bio", Type: "text"}}},
 			{ID: "c5", Name: "Enrollment", Attributes: []domain.Attribute{{ID: "a5", Name: "grade", Type: "int"}}},
 			{ID: "c6", Name: "Image", Attributes: []domain.Attribute{{ID: "a6", Name: "data", Type: "blob"}}},
@@ -150,6 +155,25 @@ func TestGenerateE2EAgainstRealGenerator(t *testing.T) {
 	}
 	if !changelogContains(entries, prefix, "data_content_type") {
 		t.Errorf("changelogs do not contain data_content_type (schema drift)")
+	}
+
+	// GBU-03: "contraseña" must transliterate to "contrasena" end to end —
+	// SQL column, JPA domain field, and the real generator must agree.
+	if !strings.Contains(initSQL, "contrasena varchar(255)") {
+		t.Errorf("init SQL missing transliterated column contrasena:\n%s", initSQL)
+	}
+	if strings.Contains(initSQL, "contrasea ") {
+		t.Errorf("init SQL must not contain the accent-dropped column contrasea:\n%s", initSQL)
+	}
+	if !changelogContains(entries, prefix, "contrasena") {
+		t.Errorf("changelogs do not contain contrasena (schema drift)")
+	}
+	studentDomain := file("src/main/java/com/umlarchitect/domain/Student.java")
+	if !strings.Contains(studentDomain, "contrasena") {
+		t.Errorf("Student.java missing transliterated field contrasena:\n%s", studentDomain)
+	}
+	if strings.Contains(studentDomain, "contrasea;") || strings.Contains(studentDomain, "contrasea ") {
+		t.Errorf("Student.java must not contain the accent-dropped field contrasea:\n%s", studentDomain)
 	}
 
 	// Reserved-keyword naming: ORDER (table) and USER (column) are both

@@ -33,6 +33,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/ai-uml-architect/gobackend/internal/domain"
 )
 
@@ -201,16 +203,39 @@ func SanitizeIdentifier(raw string) string {
 	return out
 }
 
-// jdlSafeIdentifier rewrites raw into a bare JDL-safe name stem: characters
-// outside [A-Za-z0-9] are dropped, leading digits are stripped up to the first
-// letter, and empty or digit-only input yields "Unnamed". JHipster 9.4.0's
-// JDL validator requires entity names to match /^[A-Z][A-Za-z0-9]*$/ and field
-// names /^[A-Za-z][A-Za-z0-9]*$/, so no underscore may remain in the final
-// name; FieldName/EntityName apply camel case and the reserved-word checks on
-// top of this stem. The mapping is deterministic.
+// transliterate maps accented Latin letters (á à ä â, é è ë ê, í ì ï î, ó ò ö
+// ô, ú ù ü û, ñ, ç, upper and lower) to their plain ASCII base letter instead
+// of dropping them (GBU-03: "contraseña" must sanitize to "contrasena", not
+// "contrasea"). It decomposes raw to NFD (splitting each accented letter into
+// its base letter plus a combining mark, e.g. "ñ" -> "n" + COMBINING TILDE)
+// and drops every rune in the Unicode "Mn" (Mark, nonspacing) category,
+// leaving the bare base letter for any decomposable Latin accented
+// character — not just the enumerated Spanish set — while characters with no
+// ASCII base (emoji, CJK, …) pass through unchanged for jdlSafeIdentifier to
+// drop next.
+func transliterate(raw string) string {
+	var b strings.Builder
+	for _, r := range norm.NFD.String(raw) {
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// jdlSafeIdentifier rewrites raw into a bare JDL-safe name stem: accented
+// Latin letters are transliterated to ASCII first (see transliterate), then
+// characters outside [A-Za-z0-9] are dropped, leading digits are stripped up
+// to the first letter, and empty or digit-only input yields "Unnamed".
+// JHipster 9.4.0's JDL validator requires entity names to match
+// /^[A-Z][A-Za-z0-9]*$/ and field names /^[A-Za-z][A-Za-z0-9]*$/, so no
+// underscore may remain in the final name; FieldName/EntityName apply camel
+// case and the reserved-word checks on top of this stem. The mapping is
+// deterministic.
 func jdlSafeIdentifier(raw string) string {
 	var b strings.Builder
-	for _, r := range strings.TrimSpace(raw) {
+	for _, r := range transliterate(strings.TrimSpace(raw)) {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
 			b.WriteRune(r)
 		}
@@ -231,6 +256,14 @@ func jdlSafeIdentifier(raw string) string {
 		cut++
 	}
 	return out[cut:]
+}
+
+// WasTransliterated reports whether raw contains at least one accented Latin
+// letter that transliterate maps to a different ASCII base letter (used to
+// give an accurate rename-warning reason: "transliterated to ASCII" instead
+// of the generic "Java identifier sanitization").
+func WasTransliterated(raw string) bool {
+	return transliterate(raw) != raw
 }
 
 // FieldName sanitizes raw into a lowerCamelCase JDL field name. Names that

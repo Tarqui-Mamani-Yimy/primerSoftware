@@ -115,6 +115,8 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 			reason = "name collision after sanitization"
 		case isJDLReservedWord(strings.TrimSuffix(base, "2")):
 			reason = "JDL reserved word (would break the JHipster JDL parser)"
+		case WasTransliterated(class.Name):
+			reason = "transliterated to ASCII"
 		}
 		if final != class.Name {
 			rep.Warnings = append(rep.Warnings, fmt.Sprintf(
@@ -177,6 +179,8 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 					reason = "name collision after sanitization"
 				case isJDLReservedWord(strings.TrimSuffix(base, "2")):
 					reason = "JDL reserved word (would break the JHipster JDL parser)"
+				case WasTransliterated(attr.Name):
+					reason = "transliterated to ASCII"
 				}
 				rep.Warnings = append(rep.Warnings, fmt.Sprintf(
 					"class %q attribute %q renamed to field %q (%s)", entity.Name, attr.Name, final, reason))
