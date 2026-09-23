@@ -26,6 +26,12 @@ func TestDefaultsAreDocumented(t *testing.T) {
 	if cfg.DatabaseName != "postgres" {
 		t.Errorf("default DATABASE_NAME must be postgres, got %q", cfg.DatabaseName)
 	}
+	if cfg.DeepgramModel != "nova-3" || cfg.DeepgramLanguage != "es" {
+		t.Errorf("Deepgram defaults must be nova-3/es, got %q/%q", cfg.DeepgramModel, cfg.DeepgramLanguage)
+	}
+	if cfg.DeepgramBaseURL != "https://api.deepgram.com/v1" {
+		t.Errorf("default Deepgram base URL is wrong: %q", cfg.DeepgramBaseURL)
+	}
 }
 
 func TestEnvNamesAreHonored(t *testing.T) {
@@ -34,12 +40,27 @@ func TestEnvNamesAreHonored(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")
 	t.Setenv("DATABASE_USERNAME", "u")
 	t.Setenv("DATABASE_PASSWORD", "p")
+	t.Setenv("DEEPGRAM_API_KEY", "test-key")
+	t.Setenv("DEEPGRAM_MODEL", "nova-2")
+	t.Setenv("DEEPGRAM_LANGUAGE", "es-419")
+	t.Setenv("DEEPGRAM_BASE_URL", "https://deepgram.test/v1")
 	cfg := config.Load()
 	if cfg.ServerPort != "9090" || cfg.CORSAllowedOrigin != "https://app.example.com" {
 		t.Errorf("env overrides not honored: %+v", cfg)
 	}
 	if cfg.DatabaseURL != "postgres://u:p@localhost:5432/db" || cfg.DatabaseUser != "u" || cfg.DatabasePassword != "p" {
 		t.Errorf("database env names not honored: %+v", cfg)
+	}
+}
+
+func TestDeepgramEnvironmentOverrides(t *testing.T) {
+	t.Setenv("DEEPGRAM_API_KEY", "test-key")
+	t.Setenv("DEEPGRAM_MODEL", "nova-2")
+	t.Setenv("DEEPGRAM_LANGUAGE", "es-419")
+	t.Setenv("DEEPGRAM_BASE_URL", "https://deepgram.test/v1")
+	cfg := config.Load()
+	if cfg.DeepgramAPIKey != "test-key" || cfg.DeepgramModel != "nova-2" || cfg.DeepgramLanguage != "es-419" || cfg.DeepgramBaseURL != "https://deepgram.test/v1" {
+		t.Fatalf("Deepgram environment overrides not honored: %+v", cfg)
 	}
 }
 

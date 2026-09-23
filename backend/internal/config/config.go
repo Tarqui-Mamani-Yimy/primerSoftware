@@ -25,30 +25,38 @@ import (
 //   - CORS_ALLOWED_ORIGIN, falling back to FRONTEND_URL, then
 //     http://localhost:3000 (the local frontend dev server).
 type Config struct {
-	DatabaseURL       string
-	DatabaseUser      string
-	DatabasePassword  string
-	DatabaseHost      string
-	DatabasePort      string
-	DatabaseName      string
+	DatabaseURL          string
+	DatabaseUser         string
+	DatabasePassword     string
+	DatabaseHost         string
+	DatabasePort         string
+	DatabaseName         string
 	ServerPort           string
 	CORSAllowedOrigin    string
 	RealtimeTicketSecret string
+	DeepgramAPIKey       string
+	DeepgramModel        string
+	DeepgramLanguage     string
+	DeepgramBaseURL      string
 }
 
 // Load reads the environment, applying the documented defaults.
 func Load() Config {
 	loadDotEnv()
 	return Config{
-		DatabaseURL:       normalizeDatabaseURL(os.Getenv("DATABASE_URL")),
-		DatabaseUser:      firstNonEmpty(os.Getenv("DATABASE_USERNAME"), "postgres"),
-		DatabasePassword:  os.Getenv("DATABASE_PASSWORD"),
-		DatabaseHost:      firstNonEmpty(os.Getenv("DATABASE_HOST"), "localhost"),
-		DatabasePort:      firstNonEmpty(os.Getenv("DATABASE_PORT"), "5432"),
-		DatabaseName:      firstNonEmpty(os.Getenv("DATABASE_NAME"), "postgres"),
+		DatabaseURL:          normalizeDatabaseURL(os.Getenv("DATABASE_URL")),
+		DatabaseUser:         firstNonEmpty(os.Getenv("DATABASE_USERNAME"), "postgres"),
+		DatabasePassword:     os.Getenv("DATABASE_PASSWORD"),
+		DatabaseHost:         firstNonEmpty(os.Getenv("DATABASE_HOST"), "localhost"),
+		DatabasePort:         firstNonEmpty(os.Getenv("DATABASE_PORT"), "5432"),
+		DatabaseName:         firstNonEmpty(os.Getenv("DATABASE_NAME"), "postgres"),
 		ServerPort:           firstNonEmpty(os.Getenv("SERVER_PORT"), "8080"),
 		CORSAllowedOrigin:    firstNonEmpty(os.Getenv("CORS_ALLOWED_ORIGIN"), os.Getenv("FRONTEND_URL"), "http://localhost:3000"),
 		RealtimeTicketSecret: firstNonEmpty(os.Getenv("REALTIME_TICKET_SECRET"), "dev-realtime-ticket-secret-do-not-use-in-prod"),
+		DeepgramAPIKey:       os.Getenv("DEEPGRAM_API_KEY"),
+		DeepgramModel:        firstNonEmpty(os.Getenv("DEEPGRAM_MODEL"), "nova-3"),
+		DeepgramLanguage:     firstNonEmpty(os.Getenv("DEEPGRAM_LANGUAGE"), "es"),
+		DeepgramBaseURL:      firstNonEmpty(os.Getenv("DEEPGRAM_BASE_URL"), "https://api.deepgram.com/v1"),
 	}
 }
 

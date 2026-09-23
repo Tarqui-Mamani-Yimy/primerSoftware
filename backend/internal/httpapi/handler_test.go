@@ -347,3 +347,14 @@ func TestCORSBehavior(t *testing.T) {
 		t.Errorf("unconfigured origin must not be reflected")
 	}
 }
+
+func TestVoiceTranscriptionRouteRequiresAuthenticationWhenProviderIsUnavailable(t *testing.T) {
+	srv, _ := testServer(t)
+
+	rec := doAuthed(t, srv, http.MethodPost, "/api/v1/voice/transcriptions", strings.NewReader("audio"), "")
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated voice request status = %d, want %d; body = %s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	}
+	assertErrorEnvelope(t, rec)
+}

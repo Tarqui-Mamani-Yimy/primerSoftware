@@ -38,6 +38,7 @@ func Routes() []Route {
 		{Method: http.MethodGet, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions"},
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore"},
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/artifact"},
+		{Method: http.MethodPost, Pattern: "/api/v1/voice/transcriptions"},
 	}
 }
 
@@ -68,10 +69,11 @@ const loginPattern = "/api/v1/auth/login"
 // tickets is the ticket signer used by the browser-friendly ticket REST
 // route; nil disables ticket issuance.
 type Server struct {
-	services *service.Service
-	origin   string
-	hub      HubUpgradeHost
-	tickets  ticketIssuer
+	services         *service.Service
+	origin           string
+	hub              HubUpgradeHost
+	tickets          ticketIssuer
+	voiceTranscriber *DeepgramTranscriber
 }
 
 // HubUpgradeHost is the realtime wiring point: http.HandlerFunc returning
@@ -87,6 +89,11 @@ type HubUpgradeHost interface {
 // three so the browser WebSocket has a ticket endpoint it can call.
 func NewServer(svc *service.Service, corsOrigin string, hub HubUpgradeHost, tickets ticketIssuer) *Server {
 	return &Server{services: svc, origin: corsOrigin, hub: hub, tickets: tickets}
+}
+
+// SetVoiceTranscriber configures the authenticated, server-side voice proxy.
+func (s *Server) SetVoiceTranscriber(transcriber *DeepgramTranscriber) {
+	s.voiceTranscriber = transcriber
 }
 
 // NewServerLegacy retains the GOBE-03 constructor: callers that have no
@@ -137,6 +144,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(http.MethodGet+" /api/v1/projects/{projectId}/diagrams/{id}/versions", s.withAuth(s.handleListVersions))
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore", s.withAuth(s.handleRestore))
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/artifact", s.withAuth(s.handleGenerateArtifact))
+	mux.HandleFunc(http.MethodPost+" /api/v1/voice/transcriptions", s.withAuth(s.handleVoiceTranscription))
 	if s.tickets != nil {
 		mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/realtime-tickets", s.withAuth(s.handleIssueRealtimeTicket))
 	}
@@ -152,6 +160,17 @@ func (s *Server) Handler() http.Handler {
 		}
 	}
 	return s.withCORS(mux)
+}
+
+// handleVoiceTranscription keeps the public route protected even when the
+// server has no Deepgram credentials. Configuration availability is revealed
+// only after the standard Bearer authentication gate succeeds.
+func (s *Server) handleVoiceTranscription(w http.ResponseWriter, r *http.Request) {
+	if s.voiceTranscriber == nil {
+		writeError(w, http.StatusServiceUnavailable, "Voice transcription is not configured")
+		return
+	}
+	s.voiceTranscriber.Handle(w, r)
 }
 
 // withAuth mirrors BearerFilter + the authenticated() rule: only

@@ -75,6 +75,9 @@ func main() {
 		Tickets: tickets,
 	})
 	srv := httpapi.NewServer(svc, cfg.CORSAllowedOrigin, hub, tickets)
+	srv.SetVoiceTranscriber(httpapi.NewDeepgramTranscriber(httpapi.DeepgramConfig{
+		APIKey: cfg.DeepgramAPIKey, Model: cfg.DeepgramModel, Language: cfg.DeepgramLanguage, BaseURL: cfg.DeepgramBaseURL,
+	}))
 	log.Printf("gobackend: listening on :%s", cfg.ServerPort)
 	log.Fatal(http.ListenAndServe(":"+cfg.ServerPort, srv.Handler()))
 }
