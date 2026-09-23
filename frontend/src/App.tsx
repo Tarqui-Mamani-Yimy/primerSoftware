@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActiveView, UMLClassNode, Stereotype, UMLRelationship } from './types';
+import { ActiveView, UMLClassNode, Stereotype, UMLRelationship, UMLDiagramDocument } from './types';
 import { createDiagramDocument } from './diagram/document';
 import { VoiceCommand } from './diagram/voiceCommands';
 import { validateRelationshipCreation } from './diagram/relationshipHelpers';
 import { downloadDiagramPng, downloadDiagramSvg } from './diagram/visualExport';
 import { downloadDiagramXmi } from './diagram/xmiExport';
 import { BoundImageImportPreview, confirmImageImport, ImageImportBinding, isImportPreviewCurrent } from './diagram/imageImportFlow';
-import { ApiError, artifactApi, authApi, diagramApi, imageImportApi, projectApi, realtimeApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion, UMLDiagramDocument } from './api/diagramApi';
+import { ApiError, artifactApi, authApi, diagramApi, imageImportApi, projectApi, realtimeApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramUpdateOptions, DiagramVersion } from './api/diagramApi';
 import { RealtimeClient, buildRealtimeWsUrl, PresenceMember } from './api/realtime';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -38,6 +38,7 @@ export default function App() {
   const [diagrams, setDiagrams] = useState<DiagramSummary[]>([]);
   const [versions, setVersions] = useState<DiagramVersion[]>([]);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceState>('offline');
+  const [persistenceErrorMessage, setPersistenceErrorMessage] = useState<string | null>(null);
   const [isDocumentLoading, setIsDocumentLoading] = useState(false);
   const [checkpointOpen, setCheckpointOpen] = useState(false);
   const [conflictSnapshot, setConflictSnapshot] = useState<UMLDiagramDocument | null>(null);
@@ -87,29 +88,36 @@ export default function App() {
   };
 
   const applyDocument = useCallback((document: UMLDiagramDocument) => {
+    setImageImportPreview(null);
+    const targetId = document.id ?? diagramIdRef.current;
     classesRef.current = document.classes;
     relationshipsRef.current = document.relationships;
     diagramNameRef.current = document.name;
-    diagramIdRef.current = document.id;
-    diagramVersionRef.current = document.version ?? 0;
-    diagramReviewRef.current = document.reviewNumber ?? 0;
+    diagramIdRef.current = targetId;
+    diagramVersionRef.current = document.version ?? (document.id ? 0 : diagramVersionRef.current);
+    diagramReviewRef.current = document.reviewNumber ?? (document.id ? 0 : diagramReviewRef.current);
     setClasses(document.classes);
     setRelationships(document.relationships);
     setDiagramName(document.name);
-    setDiagramId(document.id);
-    setDiagramVersion(document.version ?? 0);
-    setDiagramReview(document.reviewNumber ?? 0);
+    setDiagramId(targetId);
+    setDiagramVersion(diagramVersionRef.current);
+    setDiagramReview(diagramReviewRef.current);
     setSelectedClassId(document.classes[0]?.id ?? '');
     setSelectedRelationshipId('');
     dirtyRef.current = false;
     pendingSnapshotRef.current = null;
+    lastVoiceSnapshotRef.current = null;
+    setPersistenceErrorMessage(null);
   }, []);
 
   // persistDiagram is the single place that talks to the network for autosave.
   // It takes the latest snapshot from the refs (not from state, which can be
   // stale inside effect flushes) and surfaces every failure through the
   // canonical PersistenceState so the UI banner has exactly one source.
-  const persistDiagram = useCallback(async (snapshot: { classes: UMLClassNode[]; relationships: UMLRelationship[]; name: string }) => {
+  const persistDiagram = useCallback(async (
+    snapshot: { classes: UMLClassNode[]; relationships: UMLRelationship[]; name: string },
+    options?: DiagramUpdateOptions,
+  ) => {
     const project = activeProjectRef.current;
     const id = diagramIdRef.current;
     const version = diagramVersionRef.current;
@@ -123,7 +131,7 @@ export default function App() {
     const baseline = diagramVersionRef.current;
     const reviewBaseline = diagramReviewRef.current;
     try {
-      const saved = await diagramApi.update(project.id, id, document);
+      const saved = await diagramApi.update(project.id, id, document, options);
       if (sequence === saveSequenceRef.current && activeProjectRef.current?.id === project.id && diagramIdRef.current === id) {
         // Adopt the fresh baselines first: the server already bumped review.
         diagramVersionRef.current = saved.version ?? version;
@@ -142,6 +150,7 @@ export default function App() {
           setDiagramId(saved.id);
           dirtyRef.current = false;
           pendingSnapshotRef.current = null;
+          setPersistenceErrorMessage(null);
           setPersistenceStatus('saved');
         } else {
           // Edits landed mid-PUT: keep them and re-flush on the new baseline
@@ -160,6 +169,13 @@ export default function App() {
         if (sequence === saveSequenceRef.current) {
           setPersistenceStatus('conflict');
           setConflictSnapshot(error.payload?.current ?? null);
+        }
+        return;
+      }
+      if (error instanceof ApiError && error.status === 400) {
+        if (sequence === saveSequenceRef.current) {
+          setPersistenceErrorMessage(error.payload?.message?.trim() || error.message);
+          setPersistenceStatus('error');
         }
         return;
       }
@@ -183,6 +199,7 @@ export default function App() {
             if (pendingSnapshotRef.current === snapshot) {
               dirtyRef.current = false;
               pendingSnapshotRef.current = null;
+              setPersistenceErrorMessage(null);
               setPersistenceStatus('saved');
             } else {
               setPersistenceStatus('saving');
@@ -197,6 +214,9 @@ export default function App() {
           if (retryError instanceof ApiError && retryError.status === 409) {
             setPersistenceStatus('conflict');
             setConflictSnapshot(retryError.payload?.current ?? null);
+          } else if (retryError instanceof ApiError && retryError.status === 400) {
+            setPersistenceErrorMessage(retryError.payload?.message?.trim() || retryError.message);
+            setPersistenceStatus('error');
           } else if (
             pendingSnapshotRef.current &&
             pendingSnapshotRef.current !== snapshot &&
@@ -245,6 +265,7 @@ export default function App() {
     };
     pendingSnapshotRef.current = snapshot;
     dirtyRef.current = true;
+    setPersistenceErrorMessage(null);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     setPersistenceStatus('saving');
     saveTimerRef.current = setTimeout(() => { void persistDiagram(snapshot); }, 500);
@@ -272,6 +293,7 @@ export default function App() {
     inflightRef.current = false;
     dirtyRef.current = false;
     pendingSnapshotRef.current = null;
+    setPersistenceErrorMessage(null);
     realtimeGenRef.current += 1;
     reconnectAttemptsRef.current = 0;
     if (reconnectTimerRef.current) {
@@ -395,52 +417,35 @@ export default function App() {
     setRealtimeState('live');
   }, [applyDocument]);
 
-  // beforeunload / pagehide / visibilitychange are the three hooks React
-  // unmount misses: a hard refresh or backgrounded tab kills the timer, so
-  // we flush synchronously via navigator.sendBeacon when sendBeacon would
-  // work, and otherwise await our async flush best-effort.
+  // beforeunload / visibilitychange are the hooks React unmount misses. A
+  // beacon cannot carry the Bearer or optimistic-concurrency headers and it
+  // would POST to the frontend origin, so use the normal API client with a
+  // keepalive PUT instead. The existing non-keepalive retry remains its
+  // fallback when that request cannot be sent.
   useEffect(() => {
-    const tryFlushBeacon = () => {
+    const tryFlushOnUnload = () => {
       if (!dirtyRef.current || !pendingSnapshotRef.current) return;
-      const project = activeProjectRef.current;
-      const id = diagramIdRef.current;
-      const version = diagramVersionRef.current;
-      const review = diagramReviewRef.current;
-      if (!project || !id || typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') {
-        // Fall back to a best-effort async flush. Browsers will not await
-        // this on real unload, but on visibility-change the next paint can.
+      if (inflightRef.current) {
+        // A normal autosave is already in progress. Do not issue a second
+        // CAS write with the same review baseline.
         void flushNow();
         return;
       }
-      const payload = JSON.stringify({
-        schemaVersion: 1 as const,
-        id,
-        version,
-        reviewNumber: review,
-        name: pendingSnapshotRef.current.name.trim() || 'Diagrama sin título',
-        classes: pendingSnapshotRef.current.classes,
-        relationships: pendingSnapshotRef.current.relationships,
-      });
-      try {
-        navigator.sendBeacon(`${import.meta.env.VITE_API_BASE_URL ?? ''}/projects/${project.id}/diagrams/${id}`, new Blob([payload], { type: 'application/json' }));
-        dirtyRef.current = false;
-      } catch {
-        void flushNow();
-      }
+      void persistDiagram(pendingSnapshotRef.current, { keepalive: true });
     };
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!dirtyRef.current) return;
-      tryFlushBeacon();
+      tryFlushOnUnload();
       event.preventDefault();
       event.returnValue = es.canvas.dragPanZoom;
     };
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') tryFlushBeacon();
+      if (document.visibilityState === 'hidden') tryFlushOnUnload();
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     document.addEventListener('visibilitychange', onVisibility);
     return () => { window.removeEventListener('beforeunload', onBeforeUnload); document.removeEventListener('visibilitychange', onVisibility); };
-  }, [flushNow]);
+  }, [flushNow, persistDiagram]);
 
   useEffect(() => () => { void flushNow(); }, [flushNow]);
 
@@ -902,7 +907,7 @@ export default function App() {
     const project = activeProjectRef.current;
     const id = diagramIdRef.current;
     if (!project || !id) return;
-    const document = createDiagramDocument(
+    const diagramDocument = createDiagramDocument(
       diagramNameRef.current.trim() || 'Diagrama sin título',
       classesRef.current,
       relationshipsRef.current,
@@ -910,7 +915,7 @@ export default function App() {
       diagramVersionRef.current,
       diagramReviewRef.current,
     );
-    const response = await artifactApi.generate(project.id, id, document);
+    const response = await artifactApi.generate(project.id, id, diagramDocument);
     const url = window.URL.createObjectURL(response.blob);
     const a = document.createElement('a');
     a.href = url;
@@ -972,12 +977,12 @@ export default function App() {
     switch (persistenceStatus) {
       case 'saving': return es.canvas.saving;
       case 'saved': return es.canvas.saved;
-      case 'error': return es.canvas.saveFailed;
+      case 'error': return persistenceErrorMessage ?? es.canvas.saveFailed;
       case 'conflict': return es.canvas.persistenceConflict;
       case 'offline': return es.canvas.persistenceOffline;
       default: return '';
     }
-  }, [persistenceStatus]);
+  }, [persistenceErrorMessage, persistenceStatus]);
 
   const presenceLabel = useMemo(() => {
     if (!diagramId) return undefined;

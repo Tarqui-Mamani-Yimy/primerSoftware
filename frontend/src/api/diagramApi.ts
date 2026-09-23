@@ -9,6 +9,7 @@ export interface CreateProjectInput { name: string; description?: string; }
 export interface CreatedProject extends AssignedProject { accessCode: string; }
 export interface DiagramSummary { id: string; name: string; updatedAt: string; version: number; reviewNumber: number; }
 export interface DiagramVersion { id: string; versionNumber: number; reviewNumber: number; createdAt: string; createdBy: string; message?: string | null; document: UMLDiagramDocument; }
+export interface DiagramUpdateOptions { keepalive?: boolean; }
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly payload?: { message?: string; current?: UMLDiagramDocument }) {
     super(payload?.message ?? `API request failed (${status})`);
@@ -71,11 +72,16 @@ export const diagramApi = {
   list: (projectId: string) => request<DiagramSummary[]>(`/projects/${projectId}/diagrams`),
   create: (projectId: string, d: UMLDiagramDocument) => request<UMLDiagramDocument>(`/projects/${projectId}/diagrams`, { method: 'POST', body: JSON.stringify(d) }),
   get: (p: string, id: string) => request<UMLDiagramDocument>(`/projects/${p}/diagrams/${id}`),
-  update: (p: string, id: string, d: UMLDiagramDocument) => {
+  update: (p: string, id: string, d: UMLDiagramDocument, options?: DiagramUpdateOptions) => {
     const headers: Record<string, string> = {};
     if (typeof d.version === 'number') headers['If-Match'] = `"${d.version}"`;
     if (typeof d.reviewNumber === 'number') headers['X-Diagram-Review'] = `${d.reviewNumber}`;
-    return request<UMLDiagramDocument>(`/projects/${p}/diagrams/${id}`, { method: 'PUT', body: JSON.stringify(d), headers });
+    return request<UMLDiagramDocument>(`/projects/${p}/diagrams/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(d),
+      headers,
+      keepalive: options?.keepalive,
+    });
   },
   checkpoint: (p: string, id: string, d: UMLDiagramDocument, message?: string) => {
     const headers: Record<string, string> = {};

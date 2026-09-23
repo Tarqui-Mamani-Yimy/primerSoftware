@@ -23,7 +23,7 @@ interface ArtifactManifest {
   entities?: string[];
   relationships?: number | string[];
   warnings?: string[];
-  skipped?: string[];
+  skipped?: Array<{ kind: string; location: string; detail: string }>;
   files?: string[];
   fileCount?: number;
 }
@@ -300,7 +300,11 @@ export const BackendGeneratorView: React.FC<BackendGeneratorViewProps> = ({
                     <div className="space-y-1">
                       <div className="text-[#86948a] font-bold">{es.generator.skipped}</div>
                       <ul className="space-y-0.5 text-[#86948a]">
-                        {skipped.map((s, i) => <li key={i}>— {s}</li>)}
+                        {skipped.map((item, i) => (
+                          <li key={`${item.kind}-${item.location}-${i}`}>
+                            — {item.kind} ({item.location}): {item.detail}
+                          </li>
+                        ))}
                       </ul>
                     </div>
                   )}

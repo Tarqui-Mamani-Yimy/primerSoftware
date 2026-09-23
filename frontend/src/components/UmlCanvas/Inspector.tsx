@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { UMLClassNode, UMLAttribute, UMLMethod, Stereotype, UMLRelationship } from '../../types';
 import { es } from '../../i18n/es';
 
@@ -26,6 +26,8 @@ export const Inspector: React.FC<InspectorProps> = ({
   const [newAttrName, setNewAttrName] = useState('');
   const [newAttrType, setNewAttrType] = useState('String');
   const [newAttrVisibility, setNewAttrVisibility] = useState<'+' | '-' | '#'>('+');
+  const lastValidAttributeValues = useRef<Record<string, { name: string; type: string }>>({});
+  const lastValidMethodValues = useRef<Record<string, { name: string; returnType: string }>>({});
   const connectedRelationshipCount = relationships.filter((relationship) => relationship.sourceId === selectedClass.id || relationship.targetId === selectedClass.id).length;
 
   const handleUpdateField = <K extends keyof UMLClassNode>(field: K, value: UMLClassNode[K]) => {
@@ -59,6 +61,25 @@ export const Inspector: React.FC<InspectorProps> = ({
     });
   };
 
+  const updateAttribute = (attributeId: string, field: 'name' | 'type' | 'visibility', value: string) => {
+    if (field === 'name' || field === 'type') {
+      const current = lastValidAttributeValues.current[attributeId] ?? { name: 'attribute', type: 'String' };
+      if (value.trim()) lastValidAttributeValues.current[attributeId] = { ...current, [field]: value };
+    }
+    onUpdateClass({
+      ...selectedClass,
+      attributes: selectedClass.attributes.map((attribute) =>
+        attribute.id === attributeId ? { ...attribute, [field]: value } : attribute
+      ),
+    });
+  };
+
+  const restoreAttributeIfInvalid = (attribute: UMLAttribute, field: 'name' | 'type') => {
+    if (attribute[field].trim()) return;
+    const fallback = lastValidAttributeValues.current[attribute.id]?.[field] ?? (field === 'name' ? 'attribute' : 'String');
+    updateAttribute(attribute.id, field, fallback);
+  };
+
   const handleAddMethod = () => {
     const methodName = prompt('Ingresá la firma del método (por ejemplo, recalcularDescuento(tasa))', 'recalcularDescuento()');
     if (!methodName) return;
@@ -79,6 +100,25 @@ export const Inspector: React.FC<InspectorProps> = ({
       ...selectedClass,
       methods: selectedClass.methods.filter(m => m.id !== methodId)
     });
+  };
+
+  const updateMethod = (methodId: string, field: 'name' | 'returnType' | 'visibility', value: string) => {
+    if (field === 'name' || field === 'returnType') {
+      const current = lastValidMethodValues.current[methodId] ?? { name: 'method()', returnType: 'void' };
+      if (value.trim()) lastValidMethodValues.current[methodId] = { ...current, [field]: value };
+    }
+    onUpdateClass({
+      ...selectedClass,
+      methods: selectedClass.methods.map((method) =>
+        method.id === methodId ? { ...method, [field]: value } : method
+      ),
+    });
+  };
+
+  const restoreMethodIfInvalid = (method: UMLMethod, field: 'name' | 'returnType') => {
+    if (method[field].trim()) return;
+    const fallback = lastValidMethodValues.current[method.id]?.[field] ?? (field === 'name' ? 'method()' : 'void');
+    updateMethod(method.id, field, fallback);
   };
 
   const handleSave = () => {
@@ -239,6 +279,10 @@ export const Inspector: React.FC<InspectorProps> = ({
             </button>
           </div>
 
+          <p className="text-[10px] leading-relaxed text-[#86948a]">
+            Editá directamente el nombre, tipo y visibilidad. Los cambios se reflejan en el diagrama automáticamente.
+          </p>
+
           {showNewAttrModal && (
             <div className="p-2.5 bg-[#262a33] border border-[#4edea3] space-y-2">
               <div className="text-[10px] text-[#4edea3] font-bold uppercase">Agregar atributo a {selectedClass.name}</div>
@@ -296,13 +340,30 @@ export const Inspector: React.FC<InspectorProps> = ({
 
           <div className="space-y-1.5">
             {selectedClass.attributes.map((attr) => (
-              <div key={attr.id} className="p-2 bg-[#1c2028] border border-[#3c4a42] space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#4cd7f6] font-bold text-xs">{attr.visibility}</span>
-                    <span className="text-[#dfe2ee] font-bold text-xs">{attr.name}</span>
-                  </div>
-                  <span className="text-[#4cd7f6] text-[11px]">{attr.type}</span>
+              <div key={attr.id} className="p-2 bg-[#1c2028] border border-[#3c4a42] space-y-1.5">
+                <div className="grid grid-cols-[auto_1fr_1fr] gap-1.5 items-center">
+                  <select
+                    aria-label={`Visibilidad de ${attr.name}`}
+                    value={attr.visibility}
+                    onChange={(event) => updateAttribute(attr.id, 'visibility', event.target.value)}
+                    className="bg-[#0a0e16] px-1 py-1 text-[#4cd7f6] text-xs border border-[#3c4a42]"
+                  >
+                    {(['+', '-', '#'] as const).map((visibility) => <option key={visibility} value={visibility}>{visibility}</option>)}
+                  </select>
+                  <input
+                    aria-label={`Nombre del atributo ${attr.name}`}
+                    value={attr.name}
+                    onChange={(event) => updateAttribute(attr.id, 'name', event.target.value)}
+                    onBlur={() => restoreAttributeIfInvalid(attr, 'name')}
+                    className="min-w-0 bg-[#0a0e16] px-1.5 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
+                  />
+                  <input
+                    aria-label={`Tipo de ${attr.name}`}
+                    value={attr.type}
+                    onChange={(event) => updateAttribute(attr.id, 'type', event.target.value)}
+                    onBlur={() => restoreAttributeIfInvalid(attr, 'type')}
+                    className="min-w-0 bg-[#0a0e16] px-1.5 py-1 text-[#4cd7f6] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
+                  />
                 </div>
 
                 <div className="flex items-center justify-between text-[10px] text-[#bbcabf] pt-1 border-t border-[#3c4a42]">
@@ -337,15 +398,38 @@ export const Inspector: React.FC<InspectorProps> = ({
             </button>
           </div>
 
+          <p className="text-[10px] leading-relaxed text-[#86948a]">
+            Editá la firma y el tipo de retorno. Por ejemplo: <span className="text-[#bbcabf]">calcularTotal()</span> → <span className="text-[#4cd7f6]">BigDecimal</span>.
+          </p>
+
           <div className="space-y-1 text-xs">
             {selectedClass.methods.map((method) => (
-              <div key={method.id} className="flex items-center justify-between p-2 bg-[#1c2028] border border-[#3c4a42]">
-                <div className="truncate mr-2">
-                  <span className="text-[#4edea3] font-bold">{method.visibility} </span>
-                  <span className="text-[#dfe2ee] truncate">{method.name}</span>
+              <div key={method.id} className="p-2 bg-[#1c2028] border border-[#3c4a42] space-y-1.5">
+                <div className="grid grid-cols-[auto_1fr_1fr] gap-1.5 items-center">
+                  <select
+                    aria-label={`Visibilidad de ${method.name}`}
+                    value={method.visibility}
+                    onChange={(event) => updateMethod(method.id, 'visibility', event.target.value)}
+                    className="bg-[#0a0e16] px-1 py-1 text-[#4edea3] text-xs border border-[#3c4a42]"
+                  >
+                    {(['+', '-', '#'] as const).map((visibility) => <option key={visibility} value={visibility}>{visibility}</option>)}
+                  </select>
+                  <input
+                    aria-label={`Nombre del método ${method.name}`}
+                    value={method.name}
+                    onChange={(event) => updateMethod(method.id, 'name', event.target.value)}
+                    onBlur={() => restoreMethodIfInvalid(method, 'name')}
+                    className="min-w-0 bg-[#0a0e16] px-1.5 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
+                  />
+                  <input
+                    aria-label={`Tipo de retorno de ${method.name}`}
+                    value={method.returnType}
+                    onChange={(event) => updateMethod(method.id, 'returnType', event.target.value)}
+                    onBlur={() => restoreMethodIfInvalid(method, 'returnType')}
+                    className="min-w-0 bg-[#0a0e16] px-1.5 py-1 text-[#4cd7f6] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none"
+                  />
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <span className="text-[#4cd7f6] text-[11px]">{method.returnType}</span>
                   <button
                     onClick={() => handleDeleteMethod(method.id)}
                     className="text-[#86948a] hover:text-[#ffb4ab]"
