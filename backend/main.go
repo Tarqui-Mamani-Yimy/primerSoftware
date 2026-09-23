@@ -78,6 +78,7 @@ func main() {
 	srv.SetVoiceTranscriber(httpapi.NewDeepgramTranscriber(httpapi.DeepgramConfig{
 		APIKey: cfg.DeepgramAPIKey, Model: cfg.DeepgramModel, Language: cfg.DeepgramLanguage, BaseURL: cfg.DeepgramBaseURL,
 	}))
+	srv.SetImageImporter(httpapi.NewGeminiImageImporter(cfg.GeminiAPIKey, cfg.GeminiModels, cfg.GeminiBaseURL))
 	log.Printf("gobackend: listening on :%s", cfg.ServerPort)
 	log.Fatal(http.ListenAndServe(":"+cfg.ServerPort, srv.Handler()))
 }

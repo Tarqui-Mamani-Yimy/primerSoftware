@@ -112,3 +112,49 @@ func TestEffectiveDatabaseURLEscapesPassword(t *testing.T) {
 		t.Errorf("password must be URL-escaped, got %q", got)
 	}
 }
+
+// TestGeminiModelLegacyList tests that GEMINI_MODEL with a comma-separated
+// list is tokenized when GEMINI_MODELS is empty. The legacy value must not
+// be treated as a single invalid model ID (which caused 404→502).
+func TestGeminiModelLegacyList(t *testing.T) {
+	t.Setenv("GEMINI_MODELS", "")
+	t.Setenv("GEMINI_MODEL", "gemini-3.1-pro-review,gemini-2.5-pro,gemini-2.5-flash")
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	cfg := config.Load()
+	if cfg.GeminiModel != "gemini-3.1-pro-review,gemini-2.5-pro,gemini-2.5-flash" {
+		t.Errorf("GeminiModel must be the raw legacy value, got %q", cfg.GeminiModel)
+	}
+	expected := []string{"gemini-3.1-pro-review", "gemini-2.5-pro", "gemini-2.5-flash"}
+	if len(cfg.GeminiModels) != len(expected) {
+		t.Fatalf("GeminiModels must have %d entries, got %d: %v", len(expected), len(cfg.GeminiModels), cfg.GeminiModels)
+	}
+	for i, m := range expected {
+		if cfg.GeminiModels[i] != m {
+			t.Errorf("GeminiModels[%d] must be %q, got %q", i, m, cfg.GeminiModels[i])
+		}
+	}
+}
+
+// TestGeminiModelLegacyListDedupe verifies that duplicate entries in the
+// legacy GEMINI_MODEL collapse to a single model.
+func TestGeminiModelLegacyListDedupe(t *testing.T) {
+	t.Setenv("GEMINI_MODELS", "")
+	t.Setenv("GEMINI_MODEL", "gemini-2.5-flash,gemini-2.5-flash")
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	cfg := config.Load()
+	if len(cfg.GeminiModels) != 1 || cfg.GeminiModels[0] != "gemini-2.5-flash" {
+		t.Errorf("duplicate models must collapse to one, got %v", cfg.GeminiModels)
+	}
+}
+
+// TestGeminiModelsTakesPrecedenceOverLegacy verifies that GEMINI_MODELS wins
+// over GEMINI_MODEL when both are set.
+func TestGeminiModelsTakesPrecedenceOverLegacy(t *testing.T) {
+	t.Setenv("GEMINI_MODELS", "model-a, model-b")
+	t.Setenv("GEMINI_MODEL", "legacy-model")
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	cfg := config.Load()
+	if len(cfg.GeminiModels) != 2 || cfg.GeminiModels[0] != "model-a" || cfg.GeminiModels[1] != "model-b" {
+		t.Errorf("GEMINI_MODELS must take precedence, got %v", cfg.GeminiModels)
+	}
+}

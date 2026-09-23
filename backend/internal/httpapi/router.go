@@ -39,6 +39,7 @@ func Routes() []Route {
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore"},
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/artifact"},
 		{Method: http.MethodPost, Pattern: "/api/v1/voice/transcriptions"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/import-image"},
 	}
 }
 
@@ -74,6 +75,7 @@ type Server struct {
 	hub              HubUpgradeHost
 	tickets          ticketIssuer
 	voiceTranscriber *DeepgramTranscriber
+	imageImporter    *GeminiImageImporter
 }
 
 // HubUpgradeHost is the realtime wiring point: http.HandlerFunc returning
@@ -95,6 +97,9 @@ func NewServer(svc *service.Service, corsOrigin string, hub HubUpgradeHost, tick
 func (s *Server) SetVoiceTranscriber(transcriber *DeepgramTranscriber) {
 	s.voiceTranscriber = transcriber
 }
+
+// SetImageImporter configures the server-side Gemini image import provider.
+func (s *Server) SetImageImporter(importer *GeminiImageImporter) { s.imageImporter = importer }
 
 // NewServerLegacy retains the GOBE-03 constructor: callers that have no
 // hub wired (the REST route-table harness) keep working.
@@ -145,6 +150,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore", s.withAuth(s.handleRestore))
 	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/artifact", s.withAuth(s.handleGenerateArtifact))
 	mux.HandleFunc(http.MethodPost+" /api/v1/voice/transcriptions", s.withAuth(s.handleVoiceTranscription))
+	mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/import-image", s.withAuth(s.handleImportDiagramImage))
 	if s.tickets != nil {
 		mux.HandleFunc(http.MethodPost+" /api/v1/projects/{projectId}/diagrams/{id}/realtime-tickets", s.withAuth(s.handleIssueRealtimeTicket))
 	}

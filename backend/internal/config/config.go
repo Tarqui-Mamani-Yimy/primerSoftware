@@ -34,6 +34,10 @@ type Config struct {
 	ServerPort           string
 	CORSAllowedOrigin    string
 	RealtimeTicketSecret string
+	GeminiAPIKey         string
+	GeminiModel          string
+	GeminiModels         []string
+	GeminiBaseURL        string
 	DeepgramAPIKey       string
 	DeepgramModel        string
 	DeepgramLanguage     string
@@ -53,11 +57,54 @@ func Load() Config {
 		ServerPort:           firstNonEmpty(os.Getenv("SERVER_PORT"), "8080"),
 		CORSAllowedOrigin:    firstNonEmpty(os.Getenv("CORS_ALLOWED_ORIGIN"), os.Getenv("FRONTEND_URL"), "http://localhost:3000"),
 		RealtimeTicketSecret: firstNonEmpty(os.Getenv("REALTIME_TICKET_SECRET"), "dev-realtime-ticket-secret-do-not-use-in-prod"),
+		GeminiAPIKey:         os.Getenv("GEMINI_API_KEY"),
+		GeminiModel:          firstNonEmpty(os.Getenv("GEMINI_MODEL"), "gemini-2.5-flash"),
+		GeminiModels:         geminiModels(os.Getenv("GEMINI_MODELS"), os.Getenv("GEMINI_MODEL")),
+		GeminiBaseURL:        firstNonEmpty(os.Getenv("GEMINI_BASE_URL"), "https://generativelanguage.googleapis.com/v1beta"),
 		DeepgramAPIKey:       os.Getenv("DEEPGRAM_API_KEY"),
 		DeepgramModel:        firstNonEmpty(os.Getenv("DEEPGRAM_MODEL"), "nova-3"),
 		DeepgramLanguage:     firstNonEmpty(os.Getenv("DEEPGRAM_LANGUAGE"), "es"),
 		DeepgramBaseURL:      firstNonEmpty(os.Getenv("DEEPGRAM_BASE_URL"), "https://api.deepgram.com/v1"),
 	}
+}
+
+// geminiModels preserves the operator's best-to-worst order. Both commas and
+// whitespace are accepted so .env values can be written as a compact list or
+// as a space-separated value. GEMINI_MODEL remains a compatibility fallback
+// and is tokenized with the same parser so a legacy value like
+// "gemini-3.1-pro,gemini-2.5-flash" produces multiple ordered models rather
+// than a single invalid ID.
+func geminiModels(raw, legacy string) []string {
+	split := func(s string) []string {
+		return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' })
+	}
+	models := make([]string, 0, len(split(raw))+1)
+	seen := make(map[string]bool)
+	for _, model := range split(raw) {
+		model = strings.TrimSpace(model)
+		if model == "" || seen[model] {
+			continue
+		}
+		seen[model] = true
+		models = append(models, model)
+	}
+	// GEMINI_MODELS is empty: tokenize the legacy GEMINI_MODEL value
+	// with the same parser so a comma-separated list is not treated
+	// as a single invalid model ID (which caused 404→502).
+	if len(models) == 0 {
+		for _, model := range split(legacy) {
+			model = strings.TrimSpace(model)
+			if model == "" || seen[model] {
+				continue
+			}
+			seen[model] = true
+			models = append(models, model)
+		}
+	}
+	if len(models) == 0 {
+		models = append(models, "gemini-2.5-flash")
+	}
+	return models
 }
 
 func loadDotEnv() {

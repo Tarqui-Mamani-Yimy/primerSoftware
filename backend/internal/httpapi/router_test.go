@@ -30,6 +30,7 @@ func TestRouteTableMatchesPublicContract(t *testing.T) {
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/versions/{version}/restore"},
 		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/artifact"},
 		{Method: http.MethodPost, Pattern: "/api/v1/voice/transcriptions"},
+		{Method: http.MethodPost, Pattern: "/api/v1/projects/{projectId}/diagrams/{id}/import-image"},
 	}
 	got := httpapi.Routes()
 	if len(got) != len(want) {
