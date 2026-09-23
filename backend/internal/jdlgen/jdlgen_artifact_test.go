@@ -149,8 +149,8 @@ func TestExportSynthesizesAssociationLinks(t *testing.T) {
 	jdl, rep := jdlgen.Export(doc)
 
 	wantLinks := []string{
-		"Membership{course} to Course{memberships}",
-		"Membership{student} to Student{memberships}",
+		"Membership{course} to Course{membership}",
+		"Membership{student} to Student{membership}",
 	}
 	for _, want := range wantLinks {
 		if !strings.Contains(jdl, want) {
@@ -193,8 +193,8 @@ func TestExportSynthesizedLinkAvoidsFieldCollision(t *testing.T) {
 	}
 	jdl, _ := jdlgen.Export(doc)
 	for _, want := range []string{
-		"Course{teacher} to Teacher{courses}",
-		"Course{student2} to Student{courses}",
+		"Course{teacher} to Teacher{course}",
+		"Course{student2} to Student{course}",
 	} {
 		if !strings.Contains(jdl, want) {
 			t.Errorf("JDL missing %q:\n%s", want, jdl)

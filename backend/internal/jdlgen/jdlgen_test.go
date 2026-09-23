@@ -318,8 +318,8 @@ func TestBuildModelRenamesJHipsterBuiltInEntities(t *testing.T) {
 		t.Errorf("JDL must not declare the colliding entity User:\n%s", jdl)
 	}
 	// Relationships must resolve to the renamed entity automatically.
-	if len(rep.Relationships) != 1 || rep.Relationships[0] != "Order{appUser required} to AppUser{orders}" {
-		t.Errorf("relationship = %v, want [Order{appUser required} to AppUser{orders}]", rep.Relationships)
+	if len(rep.Relationships) != 1 || rep.Relationships[0] != "Order{appUser required} to AppUser{order}" {
+		t.Errorf("relationship = %v, want [Order{appUser required} to AppUser{order}]", rep.Relationships)
 	}
 	joined := strings.Join(rep.Warnings, "\n")
 	if !strings.Contains(joined, `class "User" renamed to entity "AppUser" (collides with JHipster built-in entity)`) {
@@ -377,6 +377,61 @@ func TestBuildModelBuiltInEntityCollisionDeduplicates(t *testing.T) {
 	}
 }
 
+// TestBuildModelCollectionFieldNamesAvoidDoublePlurals covers GBU-04: the
+// pinned generator ALWAYS re-derives the actual JSON/Java property name for a
+// collection-side relationship end by calling its own pluralize(name, {force:
+// true}) on whatever field name the JDL declares (generators/
+// base-application/entity.js: relationshipFieldNamePlural). Declaring an
+// already-pluralized name (the old pluralField behavior: append "s"/"es")
+// makes that step double-pluralize — confirmed against the real generator:
+// "betas" -> propertyName "betases", and for an entity whose name already
+// looks plural in Spanish, "roleses" -> propertyName "roleseses" (the exact
+// bug from the 2026-09-23 acceptance run). Declaring the SINGULAR stem
+// instead (strip one trailing "s" when the base already ends in "s", else
+// leave it) lets the real pluralize() library compute the correct plural
+// exactly once: "beta" -> "betas", "role" -> "roles", "permiso" ->
+// "permisos", "usuario" (no trailing s) -> "usuarios". Verified against
+// generator-jhipster 9.4.0 directly (scratch JDL runs) and in the E2E test.
+func TestBuildModelCollectionFieldNamesAvoidDoublePlurals(t *testing.T) {
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "acceptance",
+		Classes: []domain.UmlClass{
+			{ID: "roles", Name: "Roles"},
+			{ID: "permisos", Name: "Permisos"},
+			{ID: "usuario", Name: "Usuario"},
+		},
+		Relationships: []domain.Relationship{
+			// ManyToMany Roles <-> Permisos: both ends are collections and both
+			// entity names already look plural — the exact reported bug shape.
+			{ID: "r1", SourceID: "roles", TargetID: "permisos", Type: "association",
+				SourceMultiplicity: strp("*"), TargetMultiplicity: strp("*")},
+			// OneToMany Roles -> Usuario (1 Roles has many Usuario).
+			{ID: "r2", SourceID: "roles", TargetID: "usuario", Type: "association",
+				SourceMultiplicity: strp("1"), TargetMultiplicity: strp("*")},
+		},
+	}
+	_, rep := jdlgen.Export(doc)
+	if len(rep.Relationships) != 2 {
+		t.Fatalf("expected 2 relationships, got %v", rep.Relationships)
+	}
+	wantM2M := "Roles{permiso} to Permisos{role}"
+	if rep.Relationships[0] != wantM2M {
+		t.Errorf("ManyToMany relationship = %q, want %q", rep.Relationships[0], wantM2M)
+	}
+	wantO2M := "Roles{usuario} to Usuario{roles required}"
+	if rep.Relationships[1] != wantO2M {
+		t.Errorf("OneToMany relationship = %q, want %q", rep.Relationships[1], wantO2M)
+	}
+	for _, bad := range []string{"roleses", "permisoses"} {
+		for _, rendered := range rep.Relationships {
+			if strings.Contains(rendered, bad) {
+				t.Errorf("rendered relationship %q must not contain double-plural-prone %q", rendered, bad)
+			}
+		}
+	}
+}
+
 func cardinalityDoc(srcMult, dstMult *string) domain.DiagramDocument {
 	return domain.DiagramDocument{
 		SchemaVersion: 1,
@@ -400,11 +455,11 @@ func TestExportCardinalities(t *testing.T) {
 		want string
 	}{
 		{name: "missing means one to one", src: nil, dst: nil, want: "Alpha{beta} to Beta{alpha}"},
-		{name: "one to many", src: strp("1"), dst: strp("*"), want: "Alpha{betas} to Beta{alpha required}"},
-		{name: "many to one", src: strp("*"), dst: strp("1"), want: "Alpha{beta required} to Beta{alphas}"},
-		{name: "many to many", src: strp("*"), dst: strp("*"), want: "Alpha{betas} to Beta{alphas}"},
-		{name: "range many", src: strp("0..1"), dst: strp("1..*"), want: "Alpha{betas} to Beta{alpha}"},
-		{name: "numeric many", src: strp("2"), dst: strp("1"), want: "Alpha{beta required} to Beta{alphas}"},
+		{name: "one to many", src: strp("1"), dst: strp("*"), want: "Alpha{beta} to Beta{alpha required}"},
+		{name: "many to one", src: strp("*"), dst: strp("1"), want: "Alpha{beta required} to Beta{alpha}"},
+		{name: "many to many", src: strp("*"), dst: strp("*"), want: "Alpha{beta} to Beta{alpha}"},
+		{name: "range many", src: strp("0..1"), dst: strp("1..*"), want: "Alpha{beta} to Beta{alpha}"},
+		{name: "numeric many", src: strp("2"), dst: strp("1"), want: "Alpha{beta required} to Beta{alpha}"},
 		{name: "one to one ranges", src: strp("1"), dst: strp("1..1"), want: "Alpha{beta required} to Beta{alpha}"},
 	}
 	for _, tc := range cases {
@@ -450,17 +505,17 @@ func TestBuildModelRequiredByKind(t *testing.T) {
 		wantWarning  string
 	}{
 		{name: "many to one required (lower bound 1)", src: strp("*"), dst: strp("1"),
-			wantKind: "ManyToOne", wantRequired: true, wantRendered: "Alpha{beta required} to Beta{alphas}"},
+			wantKind: "ManyToOne", wantRequired: true, wantRendered: "Alpha{beta required} to Beta{alpha}"},
 		{name: "many to optional one (lower bound 0)", src: strp("*"), dst: strp("0..1"),
-			wantKind: "ManyToOne", wantRequired: false, wantRendered: "Alpha{beta} to Beta{alphas}"},
+			wantKind: "ManyToOne", wantRequired: false, wantRendered: "Alpha{beta} to Beta{alpha}"},
 		{name: "one to many required (lower bound 1)", src: strp("1"), dst: strp("*"),
-			wantKind: "OneToMany", wantRequired: true, wantRendered: "Alpha{betas} to Beta{alpha required}"},
+			wantKind: "OneToMany", wantRequired: true, wantRendered: "Alpha{beta} to Beta{alpha required}"},
 		{name: "optional one to many (lower bound 0)", src: strp("0..1"), dst: strp("*"),
-			wantKind: "OneToMany", wantRequired: false, wantRendered: "Alpha{betas} to Beta{alpha}"},
+			wantKind: "OneToMany", wantRequired: false, wantRendered: "Alpha{beta} to Beta{alpha}"},
 		{name: "one to one required (lower bound 1)", src: strp("1"), dst: strp("1"),
 			wantKind: "OneToOne", wantRequired: true, wantRendered: "Alpha{beta required} to Beta{alpha}"},
 		{name: "many to many never required", src: strp("*"), dst: strp("*"),
-			wantKind: "ManyToMany", wantRequired: false, wantRendered: "Alpha{betas} to Beta{alphas}"},
+			wantKind: "ManyToMany", wantRequired: false, wantRendered: "Alpha{beta} to Beta{alpha}"},
 		{name: "nil multiplicities not required", src: nil, dst: nil,
 			wantKind: "OneToOne", wantRequired: false, wantRendered: "Alpha{beta} to Beta{alpha}"},
 		{name: "self-reference kept optional", selfRef: true, src: strp("*"), dst: strp("1"),

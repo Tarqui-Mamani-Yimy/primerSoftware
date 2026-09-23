@@ -51,15 +51,17 @@ func e2eDoc() domain.DiagramDocument {
 			{ID: "c8", Name: "User", Attributes: []domain.Attribute{{ID: "a8", Name: "nickname", Type: "string"}}},
 		},
 		Relationships: []domain.Relationship{
-			// ManyToMany: Course{tags} -> Tag{courses}
+			// ManyToMany: Course{tag} -> Tag{course} (GBU-04: JDL declares the
+			// singular stem; the real generator's own pluralize() computes
+			// the JSON property names "tags"/"courses").
 			{ID: "r1", SourceID: "c1", TargetID: "c2", Type: "association", SourceMultiplicity: strp("*"), TargetMultiplicity: strp("*")},
 			// OneToOne: Profile{student} -> Student{profile}
 			{ID: "r2", SourceID: "c4", TargetID: "c3", Type: "association", SourceMultiplicity: strp("1"), TargetMultiplicity: strp("1")},
-			// OneToMany: Enrollment{students} -> Student{enrollment}
+			// OneToMany: Enrollment{student} -> Student{enrollment}
 			{ID: "r3", SourceID: "c5", TargetID: "c3", Type: "association", SourceMultiplicity: strp("1"), TargetMultiplicity: strp("*")},
-			// ManyToOne: Order{course} -> Course{orders}
+			// ManyToOne: Order{course} -> Course{order}
 			{ID: "r4", SourceID: "c7", TargetID: "c1", Type: "association", SourceMultiplicity: strp("*"), TargetMultiplicity: strp("1")},
-			// ManyToOne: Order{appUser} -> AppUser{orders} (renamed User)
+			// ManyToOne: Order{appUser} -> AppUser{order} (renamed User)
 			{ID: "r5", SourceID: "c7", TargetID: "c8", Type: "association", SourceMultiplicity: strp("*"), TargetMultiplicity: strp("1")},
 		},
 	}
@@ -121,13 +123,13 @@ func TestGenerateE2EAgainstRealGenerator(t *testing.T) {
 	// JHipster names it rel_<owner>__<collection field> and its FKs
 	// fk_rel_<join>__<column>; our init SQL must match byte-for-byte on the
 	// names, not just be plausible.
-	joinTable := "rel_course__tags"
+	joinTable := "rel_course__tag"
 	if !strings.Contains(initSQL, "CREATE TABLE IF NOT EXISTS "+joinTable) {
 		t.Errorf("init SQL missing join table %s", joinTable)
 	}
 	for _, fk := range []string{
-		"fk_rel_course__tags__course_id",
-		"fk_rel_course__tags__tags_id",
+		"fk_rel_course__tag__course_id",
+		"fk_rel_course__tag__tag_id",
 		"fk_profile__student_id",
 	} {
 		if !strings.Contains(initSQL, fk) {
@@ -275,6 +277,109 @@ func TestGenerateE2EAgainstRealGenerator(t *testing.T) {
 	if strings.Contains(prod, "5173") {
 		t.Errorf("application-prod.yml must not gain the local dev CORS origins:\n%s", prod)
 	}
+}
+
+// TestGenerateE2EPluralNamingAcceptanceScenario covers GBU-04's specific
+// acceptance requirement against the real generator: an entity named "Roles"
+// (a ManyToMany relationship to "Permisos", also already plural-looking in
+// Spanish) and an entity "Usuario" (OneToMany from Roles) — the exact shape
+// reported in the 2026-09-23 acceptance run, where the old naive pluralField
+// produced JDL fields "roleses"/"permisoses" and the real generator's own
+// pluralize() then re-pluralized them to "roleseses"/"permisoseses" in the
+// generated DTOs. Asserts the actual generated Java DTO field names directly.
+func TestGenerateE2EPluralNamingAcceptanceScenario(t *testing.T) {
+	if os.Getenv("JHIPSTER_E2E") != "1" {
+		t.Skip("set JHIPSTER_E2E=1 to run the real generator end to end")
+	}
+	strp := func(s string) *string { return &s }
+	doc := domain.DiagramDocument{
+		SchemaVersion: 1,
+		Name:          "PluralProbe",
+		Classes: []domain.UmlClass{
+			{ID: "roles", Name: "Roles", Attributes: []domain.Attribute{{ID: "a1", Name: "nombre", Type: "string"}}},
+			{ID: "permisos", Name: "Permisos", Attributes: []domain.Attribute{{ID: "a2", Name: "nombre", Type: "string"}}},
+			{ID: "usuario", Name: "Usuario", Attributes: []domain.Attribute{{ID: "a3", Name: "correo", Type: "string"}}},
+		},
+		Relationships: []domain.Relationship{
+			{ID: "r1", SourceID: "roles", TargetID: "permisos", Type: "association",
+				SourceMultiplicity: strp("*"), TargetMultiplicity: strp("*")},
+			{ID: "r2", SourceID: "roles", TargetID: "usuario", Type: "association",
+				SourceMultiplicity: strp("1"), TargetMultiplicity: strp("*")},
+		},
+	}
+	g := NewGenerator()
+	opts := jdlgen.DefaultOptions()
+	opts.BaseName = "PluralProbe"
+	res, err := g.Generate(context.Background(), doc, opts)
+	if err != nil {
+		t.Fatalf("Generate (real pnpm): %v", err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(res.Content), int64(len(res.Content)))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	entries := map[string]string{}
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("open %s: %v", f.Name, err)
+		}
+		data, err := io.ReadAll(rc)
+		_ = rc.Close()
+		if err != nil {
+			t.Fatalf("read %s: %v", f.Name, err)
+		}
+		entries[f.Name] = string(data)
+	}
+	prefix := "PluralProbe/"
+	rolesDTO := entries[prefix+"src/main/java/com/umlarchitect/service/dto/RolesDTO.java"]
+	permisosDTO := entries[prefix+"src/main/java/com/umlarchitect/service/dto/PermisosDTO.java"]
+	if rolesDTO == "" || permisosDTO == "" {
+		t.Fatalf("zip missing RolesDTO.java/PermisosDTO.java, have %v", keysOf(entries))
+	}
+	// Correct plurals, computed once by the real generator's own pluralize():
+	// RolesDTO.permisos, PermisosDTO.roles. Never the double-pluralized
+	// "permisoses"/"roleses"/"roleseses"/"permisoseses" from the old bug.
+	for _, want := range []string{"Set<PermisosDTO> permisos", "getPermisos()", "setPermisos("} {
+		if !strings.Contains(rolesDTO, want) {
+			t.Errorf("RolesDTO.java missing %q:\n%s", want, rolesDTO)
+		}
+	}
+	for _, want := range []string{"Set<RolesDTO> roles", "getRoles()", "setRoles("} {
+		if !strings.Contains(permisosDTO, want) {
+			t.Errorf("PermisosDTO.java missing %q:\n%s", want, permisosDTO)
+		}
+	}
+	for _, bad := range []string{"roleses", "permisoses", "roleseses", "permisoseses"} {
+		if strings.Contains(rolesDTO, bad) {
+			t.Errorf("RolesDTO.java must not contain double-plural %q:\n%s", bad, rolesDTO)
+		}
+		if strings.Contains(permisosDTO, bad) {
+			t.Errorf("PermisosDTO.java must not contain double-plural %q:\n%s", bad, permisosDTO)
+		}
+	}
+	// OneToMany Roles -> Usuario: the domain's back-reference collection
+	// (Roles.usuarios) must be a plain, correctly-pluralized "usuarios", not
+	// "usuarioses" from a stray double-pluralization.
+	rolesDomain := entries[prefix+"src/main/java/com/umlarchitect/domain/Roles.java"]
+	if rolesDomain == "" {
+		t.Fatalf("zip missing Roles.java, have %v", keysOf(entries))
+	}
+	if !strings.Contains(rolesDomain, "Set<Usuario> usuarios") {
+		t.Errorf("Roles.java missing correctly-pluralized field usuarios:\n%s", rolesDomain)
+	}
+	if strings.Contains(rolesDomain, "usuarioses") {
+		t.Errorf("Roles.java must not contain double-plural usuarioses:\n%s", rolesDomain)
+	}
+}
+
+// keysOf returns the keys of a string-keyed map, for diagnostic output.
+func keysOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // changelogContains reports whether any Liquibase changelog in the artifact

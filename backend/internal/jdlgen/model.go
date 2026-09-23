@@ -46,16 +46,58 @@ type Relationship struct {
 	Required bool
 }
 
-// pluralField returns the collection-side field name in the same shape the
-// pinned generator's naive inflector produces (append "s", or "es" when the
-// word already ends in "s"). Declaring the plural form explicitly prevents
-// JHipster from auto-deriving an inverse collection field, which fails the
-// JDL parse with "duplicate properties in entity X: field".
+// pluralField returns a naive "always plural-looking" form (append "s", or
+// "es" when the word already ends in "s"). It is used ONLY for the
+// self-reference case in relationshipFields: when a relationship's Src and
+// Dst are the same entity, both the FK-holding singular field and the
+// back-reference collection field derive their base name from that SAME
+// entity name, so collectionFieldBase (below) would declare the identical
+// JDL field name on both sides; EnsureUnique would then dedupe them into an
+// ugly numeric suffix ("alpha2") instead of a readable plural. Keeping the
+// old naive-pluralize shape for self-references only avoids that regression;
+// see collectionFieldBase for the general (non-self-reference) case.
 func pluralField(s string) string {
 	if strings.HasSuffix(s, "s") {
 		return s + "es"
 	}
 	return s + "s"
+}
+
+// collectionFieldBase returns the JDL field name declared for a
+// collection-side relationship end (OneToMany's Src, ManyToOne's Dst, both
+// ManyToMany ends): the SINGULAR stem of base, stripping one trailing "s"
+// when present.
+//
+// GBU-04: the pinned generator-jhipster 9.4.0 ALWAYS re-derives the actual
+// JSON/Java property name for a collection relationship by calling its own
+// pluralize(name, { force: true }) on whatever field name the JDL declares
+// (generators/base-application/entity.js: relationshipFieldNamePlural,
+// lib/utils/string-utils.js: pluralize — the real npm "pluralize" package,
+// not a naive suffix rule). Declaring an ALREADY-pluralized name (the old
+// pluralField behavior above) makes that step double-pluralize: verified
+// directly against the real generator — a JDL field "betas" becomes property
+// "betases", and for an entity whose name already looks plural (as "Roles"/
+// "Permisos" do in Spanish), field "roleses" becomes property "roleseses"
+// (the exact bug observed in the 2026-09-23 acceptance run:
+// jhipster-backend(1)/UmlArchitect's PermisosDTO/RolesDTO). Declaring the
+// singular stem instead lets the real pluralize() library compute the
+// correct plural exactly once: "beta" -> "betas", "role" -> "roles" (from
+// "roles" stripped to "role"), "permiso" -> "permisos", "usuario" (no
+// trailing "s" to strip) -> "usuarios". Confirmed against the real generator
+// with scratch JDL runs and in the E2E test.
+//
+// This is a naive heuristic (strip-one-trailing-"s", the exact inverse of
+// the naive pluralField above), not real singularization: an entity whose
+// name is a genuine irregular or invariant plural (e.g. "Status") is not
+// handled specially. That mirrors the pre-existing pragmatic style of this
+// package (jdlSafeIdentifier/FieldName do not attempt real NLP either) and
+// is sufficient for the acceptance-tested cases (Spanish nouns pluralized
+// with a plain trailing "s": Roles, Permisos).
+func collectionFieldBase(base string) string {
+	if strings.HasSuffix(base, "s") && len(base) > 1 {
+		return base[:len(base)-1]
+	}
+	return base
 }
 
 // BuildModel converts doc into the structured Model plus the machine-readable
@@ -65,7 +107,9 @@ func pluralField(s string) string {
 //
 //   - Field/relationship naming mirrors the pinned generator's own
 //     conventions: FK-holding sides use the singular FieldName of the other
-//     entity, collection sides use the plural form (see pluralField).
+//     entity; collection sides declare the singular stem (see
+//     collectionFieldBase) and let the pinned generator's own pluralize()
+//     derive the plural JSON/Java property name exactly once (GBU-04).
 //   - A UML class marked as an association class (targeting an attached
 //     relationship) is emitted as a plain JPA entity with explicit ManyToOne
 //     links to BOTH association ends when the attachment resolves; JHipster
@@ -340,12 +384,17 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 			if !ok {
 				continue
 			}
+			// cc (the association class) is always a distinct entity from
+			// endpoint (one of the attached relationship's ends), so this is
+			// never a self-reference: the collection-side back-reference on
+			// endpoint uses the same singular-stem convention as
+			// relationshipFields (GBU-04).
 			r := Relationship{
 				Kind:     "ManyToOne",
 				Src:      cc,
 				Dst:      endpoint,
 				SrcField: EnsureUnique(FieldName(endpoint), entityFields[cc]),
-				DstField: EnsureUnique(pluralField(FieldName(cc)), entityFields[endpoint]),
+				DstField: EnsureUnique(collectionFieldBase(FieldName(cc)), entityFields[endpoint]),
 			}
 			m.Relationships = append(m.Relationships, r)
 			rep.Relationships = append(rep.Relationships, renderRelationship(r))
@@ -358,27 +407,35 @@ func BuildModel(doc domain.DiagramDocument) (Model, Report) {
 }
 
 // relationshipFields assigns the per-end field names for one relationship.
-// Collection sides use the plural form (see pluralField) so the pinned
-// generator never auto-derives a colliding inverse field; FK sides use the
-// singular FieldName of the referenced entity. Names are deduplicated per
-// entity.
+// Collection sides declare the singular stem (see collectionFieldBase) so
+// the pinned generator's own pluralize() computes the correct plural exactly
+// once instead of double-pluralizing (GBU-04); FK sides use the singular
+// FieldName of the referenced entity, unchanged. Names are deduplicated per
+// entity. Self-references (src == dst) keep the old naive-pluralize shape
+// (see pluralField) so the FK field and the back-reference collection field
+// — which both derive from the SAME entity name — stay distinct without
+// falling back to an EnsureUnique numeric suffix.
 func relationshipFields(card, src, dst string, entityFields map[string]map[string]struct{}) Relationship {
 	r := Relationship{Kind: card, Src: src, Dst: dst}
 	srcBase := FieldName(dst)
 	dstBase := FieldName(src)
+	collectionField := collectionFieldBase
+	if src == dst {
+		collectionField = pluralField
+	}
 	switch card {
 	case "OneToMany":
 		// The source entity holds the collection of the destination entity.
-		r.SrcField = pluralField(srcBase)
+		r.SrcField = collectionField(srcBase)
 		r.DstField = dstBase
 	case "ManyToOne":
 		// The source entity holds the FK to the destination entity, and the
 		// destination exposes the back-reference collection.
 		r.SrcField = srcBase
-		r.DstField = pluralField(dstBase)
+		r.DstField = collectionField(dstBase)
 	case "ManyToMany":
-		r.SrcField = pluralField(srcBase)
-		r.DstField = pluralField(dstBase)
+		r.SrcField = collectionField(srcBase)
+		r.DstField = collectionField(dstBase)
 	default: // OneToOne: both sides are single references
 		r.SrcField = srcBase
 		r.DstField = dstBase
