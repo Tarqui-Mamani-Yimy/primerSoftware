@@ -95,10 +95,10 @@ func TestValidateMultiplicityTable(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsSelfLoopDuplicateClassIdsAndDuplicateRelIds(t *testing.T) {
-	assertContains(t,
-		domain.ValidateDocument(validDoc(rel("rel-1", "order", "order", "association", nil, nil))),
-		"cannot connect a class to itself")
+func TestValidateAcceptsSelfLoopAndRejectsDuplicateClassIdsAndDuplicateRelIds(t *testing.T) {
+	if errs := domain.ValidateDocument(validDoc(rel("rel-1", "order", "order", "association", nil, nil))); len(errs) != 0 {
+		t.Errorf("expected self relationship to be valid, got %v", errs)
+	}
 
 	dupClasses := validDoc()
 	dupClasses.Classes = append(dupClasses.Classes, domain.UmlClass{ID: "order", Name: "Order2"})

@@ -45,7 +45,10 @@ interface CanvasViewProps {
 type Point = { x: number; y: number };
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2.5;
-const CANVAS_SIZE = 2600;
+// Keep a large model-space canvas even when the viewport is small. Pan and
+// zoom continue to operate on this space, so diagrams with many classes do
+// not get clipped by the initial viewport dimensions.
+const CANVAS_SIZE = 5000;
 const nodeWidth = (umlClass: UMLClassNode) => umlClass.width ?? 250;
 const nodeHeight = (umlClass: UMLClassNode) => Math.max(130, 92 + (umlClass.attributes.length + umlClass.methods.length) * 18);
 const relationshipDash: Partial<Record<RelationshipType, string>> = { realization: '6 4', dependency: '6 4' };
@@ -154,7 +157,13 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
       if (!point) return;
       const drag = dragRef.current;
       const current = props.classes.find((umlClass) => umlClass.id === drag.id);
-      if (current) props.onUpdateClass({ ...current, x: Math.max(0, point.x - drag.offset.x), y: Math.max(0, point.y - drag.offset.y) });
+      if (current) {
+        props.onUpdateClass({
+          ...current,
+          x: Math.round(Math.max(0, point.x - drag.offset.x)),
+          y: Math.round(Math.max(0, point.y - drag.offset.y)),
+        });
+      }
       return;
     }
     if (panRef.current) setPan({ x: panRef.current.origin.x + event.clientX - panRef.current.start.x, y: panRef.current.origin.y + event.clientY - panRef.current.start.y });
@@ -244,6 +253,7 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
             const target = props.classes.find((item) => item.id === relationship.targetId);
             if (!source || !target) return null;
             const color = relationship.type === 'composition' ? '#4edea3' : relationship.type === 'generalization' || relationship.type === 'realization' ? '#d0bcff' : '#4cd7f6';
+            const isSelf = relationship.sourceId === relationship.targetId;
             const edge = clipEdgeToNodeBorders(
               { x: source.x, y: source.y, width: nodeWidth(source), height: nodeHeight(source) },
               { x: target.x, y: target.y, width: nodeWidth(target), height: nodeHeight(target) },
@@ -253,27 +263,48 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
             const nearSource = pointAlongEdge(edge, 0.12);
             const nearTarget = pointAlongEdge(edge, 0.88);
             const labelWidth = relationship.label ? relationship.label.length * 7 + 18 : 0;
+            // A center-to-center line collapses for a self relationship. Use
+            // a loop outside the node instead, with a generous hit target so
+            // it remains selectable and removable like every other edge.
+            const selfRight = source.x + nodeWidth(source);
+            const selfMidY = source.y + nodeHeight(source) / 2;
+            const selfLoop = {
+              startX: selfRight,
+              startY: selfMidY - 22,
+              endX: selfRight,
+              endY: selfMidY + 22,
+              controlX: selfRight + 92,
+              topY: source.y - 42,
+              bottomY: source.y + nodeHeight(source) + 42,
+            };
+            const selfPath = `M ${selfLoop.startX} ${selfLoop.startY} C ${selfLoop.controlX} ${selfLoop.topY}, ${selfLoop.controlX} ${selfLoop.bottomY}, ${selfLoop.endX} ${selfLoop.endY}`;
+            const selfLabel = { x: selfLoop.controlX + 8, y: selfMidY };
             return (
               <g key={relationship.id} style={{ pointerEvents: 'auto' }} onClick={(event) => { event.stopPropagation(); selectEdge(relationship.id); }}>
-                <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} stroke="transparent" strokeWidth="16" />
-                <line
-                  x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2}
-                  stroke={isSelected ? '#ffffff' : color} strokeWidth={isSelected ? 3 : 2}
-                  strokeDasharray={relationshipDash[relationship.type]}
-                  markerStart={relationship.type === 'aggregation' || relationship.type === 'composition' ? markerFor(relationship.type) : undefined}
-                  markerEnd={relationship.type === 'association' || relationship.type === 'aggregation' || relationship.type === 'composition' ? undefined : markerFor(relationship.type)}
-                />
+                {isSelf ? <>
+                  <path d={selfPath} stroke="transparent" strokeWidth="18" fill="none" />
+                  <path d={selfPath} stroke={isSelected ? '#ffffff' : color} strokeWidth={isSelected ? 3 : 2} fill="none" strokeDasharray={relationshipDash[relationship.type]} markerEnd={relationship.type === 'association' || relationship.type === 'aggregation' || relationship.type === 'composition' ? undefined : markerFor(relationship.type)} />
+                </> : <>
+                  <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} stroke="transparent" strokeWidth="16" />
+                  <line
+                    x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2}
+                    stroke={isSelected ? '#ffffff' : color} strokeWidth={isSelected ? 3 : 2}
+                    strokeDasharray={relationshipDash[relationship.type]}
+                    markerStart={relationship.type === 'aggregation' || relationship.type === 'composition' ? markerFor(relationship.type) : undefined}
+                    markerEnd={relationship.type === 'association' || relationship.type === 'aggregation' || relationship.type === 'composition' ? undefined : markerFor(relationship.type)}
+                  />
+                </>}
                 {relationship.label && (
                   <g>
-                    <rect x={mid.x - labelWidth / 2} y={mid.y - 11} width={labelWidth} height={20} rx={10} fill="#0a0e16" stroke={color} strokeWidth={1} />
-                    <text x={mid.x} y={mid.y + 4} fill={color} fontSize="12" textAnchor="middle">{relationship.label}</text>
+                    <rect x={(isSelf ? selfLabel.x : mid.x) - labelWidth / 2} y={(isSelf ? selfLabel.y : mid.y) - 11} width={labelWidth} height={20} rx={10} fill="#0a0e16" stroke={color} strokeWidth={1} />
+                    <text x={isSelf ? selfLabel.x : mid.x} y={(isSelf ? selfLabel.y : mid.y) + 4} fill={color} fontSize="12" textAnchor="middle">{relationship.label}</text>
                   </g>
                 )}
                 {relationship.sourceMultiplicity && (
-                  <text x={nearSource.x + 8} y={nearSource.y - 8} fill={color} fontSize="12" stroke="#0a0e16" strokeWidth={3} paintOrder="stroke">{relationship.sourceMultiplicity}</text>
+                  <text x={(isSelf ? selfLoop.startX : nearSource.x) + 8} y={(isSelf ? selfLoop.startY : nearSource.y) - 8} fill={color} fontSize="12" stroke="#0a0e16" strokeWidth={3} paintOrder="stroke">{relationship.sourceMultiplicity}</text>
                 )}
                 {relationship.targetMultiplicity && (
-                  <text x={nearTarget.x + 8} y={nearTarget.y - 8} fill={color} fontSize="12" stroke="#0a0e16" strokeWidth={3} paintOrder="stroke">{relationship.targetMultiplicity}</text>
+                  <text x={(isSelf ? selfLoop.endX : nearTarget.x) + 8} y={(isSelf ? selfLoop.endY : nearTarget.y) - 8} fill={color} fontSize="12" stroke="#0a0e16" strokeWidth={3} paintOrder="stroke">{relationship.targetMultiplicity}</text>
                 )}
               </g>
             );

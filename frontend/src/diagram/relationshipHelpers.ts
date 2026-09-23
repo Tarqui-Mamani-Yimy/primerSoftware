@@ -15,7 +15,8 @@ export interface RelationshipValidation {
 
 /**
  * Single validation entry point shared by the canvas interaction.
- * Order matters: self-association is reported before duplicates.
+ * Self-associations are valid UML relationships. The duplicate check still
+ * prevents two identical relationship triples from being added.
  */
 export const validateRelationshipCreation = (
   sourceId: string,
@@ -25,9 +26,6 @@ export const validateRelationshipCreation = (
   source?: UMLClassNode,
   target?: UMLClassNode,
 ): RelationshipValidation => {
-  if (sourceId === targetId) {
-    return { ok: false, reason: 'Self-association is not allowed: pick a different target class.' };
-  }
   if (existing.some((r) => r.sourceId === sourceId && r.targetId === targetId && r.type === type)) {
     return { ok: false, reason: 'That relationship already exists between these classes.' };
   }

@@ -89,20 +89,30 @@ export const RelationshipInspector: React.FC<RelationshipInspectorProps> = ({
         </div>
 
         <div>
-          <label className="text-[9px] uppercase text-[#bbcabf] block mb-1" htmlFor="rel-label">{es.canvas.label}</label>
+          <label className="text-[9px] uppercase text-[#bbcabf] block mb-1" htmlFor="rel-label">
+            Verbo de relación / etiqueta UML
+          </label>
           <input id="rel-label" className="w-full bg-[#0a0e16] px-2 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none" type="text" value={draft.label ?? ''} onChange={(event) => updateDraft('label', event.target.value)} placeholder="e.g. places" />
+          <p className="mt-1 text-[10px] leading-relaxed text-[#86948a]">
+            Escribí el verbo que describe el vínculo, por ejemplo <span className="text-[#bbcabf]">conoce a</span>, <span className="text-[#bbcabf]">contiene</span> o <span className="text-[#bbcabf]">usa</span>.
+          </p>
         </div>
 
         <div>
-          <label className="text-[9px] uppercase text-[#bbcabf] block mb-1" htmlFor="rel-source-mult">{es.canvas.sourceMultiplicity} (cerca de {sourceName})</label>
+          <label className="text-[9px] uppercase text-[#bbcabf] block mb-1" htmlFor="rel-source-mult">Cardinalidad cerca de {sourceName} (origen)</label>
           <input id="rel-source-mult" className="w-full bg-[#0a0e16] px-2 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none" type="text" value={draft.sourceMultiplicity ?? ''} onChange={(event) => handleMultiplicityChange('sourceMultiplicity', event.target.value)} placeholder="e.g. 1" />
           {errors.sourceMultiplicity && <p className="mt-1 text-[10px] text-[#ffb4ab]">{errors.sourceMultiplicity}</p>}
         </div>
 
         <div>
-          <label className="text-[9px] uppercase text-[#bbcabf] block mb-1" htmlFor="rel-target-mult">{es.canvas.targetMultiplicity} (cerca de {targetName})</label>
+          <label className="text-[9px] uppercase text-[#bbcabf] block mb-1" htmlFor="rel-target-mult">Cardinalidad cerca de {targetName} (destino)</label>
           <input id="rel-target-mult" className="w-full bg-[#0a0e16] px-2 py-1 text-[#dfe2ee] text-xs border border-[#3c4a42] focus:border-[#4edea3] focus:outline-none" type="text" value={draft.targetMultiplicity ?? ''} onChange={(event) => handleMultiplicityChange('targetMultiplicity', event.target.value)} placeholder="e.g. 1..*" />
           {errors.targetMultiplicity && <p className="mt-1 text-[10px] text-[#ffb4ab]">{errors.targetMultiplicity}</p>}
+        </div>
+
+        <div className="border border-[#3c4a42] bg-[#1c2028] p-2 text-[10px] leading-relaxed text-[#86948a]">
+          <strong className="text-[#dfe2ee]">Ejemplos UML:</strong> <span className="text-[#bbcabf]">1</span> = exactamente uno, <span className="text-[#bbcabf]">0..*</span> = cero o muchos, <span className="text-[#bbcabf]">1..*</span> = uno o muchos.
+          {draft.sourceId === draft.targetId && <span className="block mt-1 text-[#4cd7f6]">Relación recursiva: ambas cardinalidades y el verbo se aplican sobre la misma clase.</span>}
         </div>
 
         {errors.relationship && <p role="alert" className="text-[10px] text-[#ffb4ab]">{errors.relationship}</p>}

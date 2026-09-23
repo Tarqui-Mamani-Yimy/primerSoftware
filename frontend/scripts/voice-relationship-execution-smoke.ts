@@ -49,6 +49,13 @@ const rememberVoiceState = () => {
   };
 };
 
+// Read through a function (instead of the bare `relationships[0]` expression)
+// so TypeScript's control-flow narrowing from an earlier literal comparison
+// (e.g. `relationships[0].type !== 'composition'`) doesn't leak into later,
+// unrelated comparisons after the array has been reassigned by a call to
+// `handleRelationshipCommand`/`handleUndo`.
+const currentRelationship = (): UMLRelationship => relationships[0];
+
 const matching = (name: string) =>
   classes.filter((c) => c.name.localeCompare(name, 'es', { sensitivity: 'accent' }) === 0);
 
@@ -142,9 +149,9 @@ res = handleRelationshipCommand({
   label: 'contiene',
 });
 if (!res.ok || relationships.length !== 1) throw new Error('Test 2 failed: should update existing');
-if (relationships[0].type !== 'aggregation') throw new Error('Test 2 failed: type should be updated to aggregation');
-if (relationships[0].sourceMultiplicity !== '1..*' || relationships[0].targetMultiplicity !== '*') throw new Error('Test 2 failed: multiplicities updated');
-if (relationships[0].label !== 'contiene') throw new Error('Test 2 failed: label updated');
+if (currentRelationship().type !== 'aggregation') throw new Error('Test 2 failed: type should be updated to aggregation');
+if (currentRelationship().sourceMultiplicity !== '1..*' || currentRelationship().targetMultiplicity !== '*') throw new Error('Test 2 failed: multiplicities updated');
+if (currentRelationship().label !== 'contiene') throw new Error('Test 2 failed: label updated');
 
 // Test 3: Undo restores state before update
 let undoRes = handleUndo();

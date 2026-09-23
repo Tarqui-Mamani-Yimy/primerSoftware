@@ -1,7 +1,7 @@
 // Semantic validation for UML diagram documents (GOBE-02).
 //
 // ValidateDocument ports DiagramDocumentValidator exactly: unique class and
-// relationship ids, existing endpoints, no self-loops, no duplicate
+// relationship ids, existing endpoints, self-loops, no duplicate
 // (sourceId, targetId, type) triples, multiplicity syntax, and the
 // realization rule. Error strings match the Java messages verbatim so API
 // 400 bodies stay identical. Association-class rules extend the port: an
@@ -49,9 +49,6 @@ func ValidateDocument(doc DiagramDocument) []string {
 		}
 		if !IsValidRelationshipType(relationship.Type) {
 			errors = append(errors, "Relationship "+relationship.ID+" has unsupported type: "+relationship.Type)
-		}
-		if relationship.SourceID == relationship.TargetID {
-			errors = append(errors, "Relationship "+relationship.ID+" cannot connect a class to itself")
 		}
 		key := relationship.SourceID + "\x00" + relationship.TargetID + "\x00" + relationship.Type
 		if _, dup := relKeys[key]; dup {

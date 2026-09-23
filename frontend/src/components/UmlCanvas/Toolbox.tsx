@@ -216,8 +216,8 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             <div
               key={c.id}
               style={{
-                left: `${(c.x / 1100) * 80 + 5}%`,
-                top: `${(c.y / 700) * 70 + 5}%`,
+                left: `${(c.x / 5000) * 80 + 5}%`,
+                top: `${(c.y / 5000) * 70 + 5}%`,
                 width: selectedClassId === c.id ? '22px' : '16px',
                 height: selectedClassId === c.id ? '16px' : '12px'
               }}
