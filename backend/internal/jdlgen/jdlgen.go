@@ -66,6 +66,17 @@ type Options struct {
 	AuthenticationType string // jwt
 }
 
+// ServerPort is the pinned Spring Boot server.port for the generated
+// backend (GBU-02): the pinned generator's own default (8080) collides with
+// this project's own Go backend, so the scaffold declares a non-default port
+// through the JDL "serverPort" application config key. Setting it here (as
+// opposed to patching application-dev.yml/application-prod.yml after
+// generation) is driven straight through the generator's own
+// application-{dev,prod}.yml.ejs templates ("port: <%- serverPort %>"), so
+// every profile and every reference to it (e.g. the dev Swagger base-url)
+// stays consistent without a brittle anchored text patch.
+const ServerPort = "8081"
+
 // DefaultOptions is the documented neutral application identity: it carries
 // no client domain (no invented packages or business entities), just a sane
 // scaffold the client may override per request.
@@ -497,6 +508,7 @@ func renderApplicationBlock(o Options, entities []string) string {
 	b.WriteString("    prodDatabaseType postgresql\n")
 	b.WriteString("    devDatabaseType postgresql\n")
 	b.WriteString("    skipClient true\n")
+	fmt.Fprintf(&b, "    serverPort %s\n", ServerPort)
 	b.WriteString("  }\n")
 	if len(entities) > 0 {
 		fmt.Fprintf(&b, "  entities %s\n", strings.Join(entities, ", "))

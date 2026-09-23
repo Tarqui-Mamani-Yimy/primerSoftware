@@ -390,7 +390,7 @@ func TestRenderCompose(t *testing.T) {
 		"POSTGRES_DB: my-project",
 		"POSTGRES_USER: devuser",
 		"POSTGRES_PASSWORD: devpassword",
-		`      - "5432:5432"`,
+		`      - "5433:5432"`,
 		"- ./database/postgres_data:/var/lib/postgresql/data",
 		"- ./database/my-project.sql:/docker-entrypoint-initdb.d/init.sql:ro",
 		"rm -rf database/postgres_data",
@@ -502,8 +502,8 @@ func TestPatchApplicationConfig(t *testing.T) {
 		return string(data)
 	}
 	for name, want := range map[string]string{
-		"application-dev.yml":            `url: jdbc:postgresql://localhost:5432/probe-app`,
-		"application-prod.yml":           `url: jdbc:postgresql://localhost:5432/probe-app`,
+		"application-dev.yml":            `url: jdbc:postgresql://localhost:5433/probe-app`,
+		"application-prod.yml":           `url: jdbc:postgresql://localhost:5433/probe-app`,
 		"application-secret-samples.yml": "username: devuser",
 		"application.yml":                "enabled: false # ai-uml-architect: database is provisioned by database/compose.yml",
 	} {

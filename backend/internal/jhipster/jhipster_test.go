@@ -210,7 +210,7 @@ jhipster:
 	}
 	// The patched configs must ship with the provisioned datasource.
 	for path, want := range map[string]string{
-		"UmlArchitect/src/main/resources/config/application-dev.yml":            "url: jdbc:postgresql://localhost:5432/uml-architect",
+		"UmlArchitect/src/main/resources/config/application-dev.yml":            "url: jdbc:postgresql://localhost:5433/uml-architect",
 		"UmlArchitect/src/main/resources/config/application.yml":                "enabled: false # ai-uml-architect: database is provisioned by database/compose.yml",
 		"UmlArchitect/src/main/resources/config/application-secret-samples.yml": "username: devuser",
 	} {

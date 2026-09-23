@@ -36,8 +36,12 @@ const (
 	DatabaseUser = "devuser"
 	// DatabasePassword is the generated app's datasource password.
 	DatabasePassword = "devpassword"
-	// DatabasePort is the published host port.
-	DatabasePort = "5432"
+	// DatabasePort is the published host port (GBU-02): the pinned
+	// generator's own default datasource URL always targets 5432, which
+	// collides with this project's own Postgres ("umlSoft"); the container's
+	// internal port stays 5432 (RenderCompose hardcodes the container side),
+	// only the host-published side moves to 5433.
+	DatabasePort = "5433"
 	// DataDir is the compose volume path (relative to the generated project).
 	DataDir = "./database/postgres_data"
 )
@@ -474,9 +478,9 @@ func PatchApplicationConfig(root, baseName, slug string) error {
 
 	dev := filepath.Join(configDir, "application-dev.yml")
 	if err := patchFile(dev, []replacement{
-		{old: "url: jdbc:postgresql://localhost:5432/" + baseName, new: "url: jdbc:postgresql://localhost:5432/" + slug},
-		{old: "    url: jdbc:postgresql://localhost:5432/" + slug + "\n    hikari:",
-			new: "    url: jdbc:postgresql://localhost:5432/" + slug + "\n    username: " + DatabaseUser + "\n    password: " + DatabasePassword + "\n    hikari:"},
+		{old: "url: jdbc:postgresql://localhost:5432/" + baseName, new: "url: jdbc:postgresql://localhost:" + DatabasePort + "/" + slug},
+		{old: "    url: jdbc:postgresql://localhost:" + DatabasePort + "/" + slug + "\n    hikari:",
+			new: "    url: jdbc:postgresql://localhost:" + DatabasePort + "/" + slug + "\n    username: " + DatabaseUser + "\n    password: " + DatabasePassword + "\n    hikari:"},
 	}); err != nil {
 		return fmt.Errorf("patch application-dev.yml: %w", err)
 	}
@@ -489,9 +493,9 @@ func PatchApplicationConfig(root, baseName, slug string) error {
 
 	prod := filepath.Join(configDir, "application-prod.yml")
 	if err := patchFile(prod, []replacement{
-		{old: "url: jdbc:postgresql://localhost:5432/" + baseName, new: "url: jdbc:postgresql://localhost:5432/" + slug},
-		{old: "    url: jdbc:postgresql://localhost:5432/" + slug + "\n    hikari:",
-			new: "    url: jdbc:postgresql://localhost:5432/" + slug + "\n    username: " + DatabaseUser + "\n    password: " + DatabasePassword + "\n    hikari:"},
+		{old: "url: jdbc:postgresql://localhost:5432/" + baseName, new: "url: jdbc:postgresql://localhost:" + DatabasePort + "/" + slug},
+		{old: "    url: jdbc:postgresql://localhost:" + DatabasePort + "/" + slug + "\n    hikari:",
+			new: "    url: jdbc:postgresql://localhost:" + DatabasePort + "/" + slug + "\n    username: " + DatabaseUser + "\n    password: " + DatabasePassword + "\n    hikari:"},
 	}); err != nil {
 		return fmt.Errorf("patch application-prod.yml: %w", err)
 	}

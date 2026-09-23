@@ -73,6 +73,7 @@ func TestExportArtifactIncludesApplicationBlock(t *testing.T) {
 		"databaseType sql",
 		"prodDatabaseType postgresql",
 		"skipClient true",
+		"serverPort 8081",
 		"entities Alpha",
 		"service * with serviceImpl",
 		"dto * with mapstruct",

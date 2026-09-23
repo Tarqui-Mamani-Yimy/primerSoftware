@@ -198,16 +198,34 @@ func TestGenerateE2EAgainstRealGenerator(t *testing.T) {
 		t.Errorf("changelogs do not contain app_user (schema drift)")
 	}
 
-	// Patched datasource: Liquibase off + our database.
+	// Patched datasource: Liquibase off + our database, on the non-clashing
+	// host port (GBU-02: the project's own Postgres already owns 5432).
 	dev := file("src/main/resources/config/application-dev.yml")
 	for _, want := range []string{
-		"jdbc:postgresql://localhost:5432/uml-architect",
+		"jdbc:postgresql://localhost:5433/uml-architect",
 		"username: devuser",
 		"enabled: false",
 	} {
 		if !strings.Contains(dev, want) {
 			t.Errorf("patched application-dev.yml missing %q:\n%s", want, dev)
 		}
+	}
+
+	// GBU-02: serverPort in the JDL application config drives server.port in
+	// both profiles directly (application-{dev,prod}.yml.ejs render
+	// "port: <%- serverPort %>"), avoiding a clash with the project's own Go
+	// backend on 8080.
+	prodForPort := file("src/main/resources/config/application-prod.yml")
+	for _, f := range map[string]string{"application-dev.yml": dev, "application-prod.yml": prodForPort} {
+		if !strings.Contains(f, "\nserver:\n  port: 8081\n") && !strings.Contains(f, "server:\n  port: 8081") {
+			t.Errorf("%s missing server.port 8081:\n%s", f, f)
+		}
+	}
+
+	// The generated compose file must publish Postgres on 5433 (container
+	// port stays 5432).
+	if !strings.Contains(compose, `"5433:5432"`) {
+		t.Errorf("compose must publish postgres on host port 5433:\n%s", compose)
 	}
 
 	// CORS: a separately developed frontend's local dev origins must be
