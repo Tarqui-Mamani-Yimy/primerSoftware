@@ -7,6 +7,9 @@ import { RelationshipInspector } from './RelationshipInspector';
 import { Toolbox } from './Toolbox';
 import { clipEdgeToNodeBorders, pointAlongEdge, validateRelationshipCreation } from '../../diagram/relationshipHelpers';
 import { es } from '../../i18n/es';
+import { ApiError } from '../../api/diagramApi';
+import { VoiceCommand } from '../../diagram/voiceCommands';
+import { VoiceCommandControl } from './VoiceCommandControl';
 
 interface CanvasViewProps {
   classes: UMLClassNode[];
@@ -37,6 +40,8 @@ interface CanvasViewProps {
   onLoadVersions: () => void;
   onRestoreVersion: (versionNumber: number) => void;
   onCreateCheckpoint: () => void;
+  onImportImage: (file: File) => Promise<void>;
+  onVoiceCommand: (command: VoiceCommand) => { ok: boolean; message: string };
   persistenceLabel: string;
   presenceMembers?: PresenceMember[];
   presenceLabel?: string;
@@ -71,6 +76,8 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
   const [statusHint, setStatusHint] = useState<string | null>(null);
   const [showDocuments, setShowDocuments] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const [imageImporting, setImageImporting] = useState(false);
+  const [imageImportError, setImageImportError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 80, y: 80 });
   const selected = props.classes.find((item) => item.id === props.selectedClassId);
@@ -199,9 +206,14 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
   const resetViewport = () => { setZoom(1); setPan({ x: 80, y: 80 }); };
 
   return <div className="relative flex h-[calc(100vh-4rem)] min-w-0 bg-[#0a0e16]">
+    {imageImportError && <div role="alert" className="absolute right-4 top-4 z-30 border border-[#ffb4ab] bg-[#1c2028] p-3 text-xs text-[#ffb4ab]">{imageImportError}<button type="button" className="ml-3 underline" onClick={() => setImageImportError(null)}>Close</button></div>}
     <Toolbox classes={props.classes} selectedClassId={props.selectedClassId} onSelectClass={(id) => { props.onSelectRelationship(''); props.onSelectClass(id); }} onAddClass={props.onAddClass} onAddAssociationClass={props.onAddAssociationClass} onSelectRelationshipType={selectRelationshipType} activeRelationshipType={relationshipType} zoomLevel={zoom} />
     <section ref={viewportRef} onWheel={handleWheel} onPointerDown={handleCanvasPointerDown} onPointerMove={handlePointerMove} onPointerUp={endPointerAction} onPointerCancel={endPointerAction} className="relative h-full min-w-0 flex-1 overflow-hidden touch-none cursor-grab active:cursor-grabbing" aria-label={es.canvas.interactiveCanvas}>
-      <div className="absolute left-4 top-4 z-20 flex items-center gap-2 border border-[#3c4a42] bg-[#262a33] p-2 font-mono text-xs shadow-lg">
+      <div
+        onPointerDown={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+        className="absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 border border-[#3c4a42] bg-[#262a33] p-2 font-mono text-xs shadow-lg"
+      >
         <div className="relative border-r border-[#3c4a42] pr-2">
           <button type="button" onClick={() => setShowDocuments((current) => !current)} className="max-w-44 truncate text-[#dfe2ee] hover:text-[#4edea3]" title="Open or create a diagram">
             {props.diagramName || es.canvas.noDiagram} ▾
@@ -214,6 +226,11 @@ export const CanvasView: React.FC<CanvasViewProps> = (props) => {
           </div>}
         </div>
         {props.diagramId && <input aria-label="Diagram name" value={props.diagramName} onChange={(event) => props.onRenameDiagram(event.target.value)} className="w-32 bg-transparent text-[#bbcabf] outline-none focus:text-white" placeholder="Diagram name" />}
+        <label className={`border-l border-[#3c4a42] pl-2 ${props.diagramId ? 'cursor-pointer text-[#4cd7f6] hover:text-white' : 'cursor-not-allowed text-[#86948a]'}`} title={props.diagramId ? 'Generate a UML diagram from an image and preview it before applying' : 'Create or select a diagram before generating it from an image'}>
+          {imageImporting ? 'Analyzing…' : 'Generate diagram from image'}
+          <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={imageImporting || !props.diagramId} onChange={async (event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; if (!file) return; setImageImportError(null); setImageImporting(true); try { await props.onImportImage(file); } catch (error) { setImageImportError(error instanceof ApiError ? error.message : 'Could not generate a diagram from this image.'); } finally { setImageImporting(false); } }} />
+        </label>
+        <VoiceCommandControl disabled={!props.diagramId || props.isDocumentLoading} onConfirmCommand={props.onVoiceCommand} />
         <span className={props.persistenceStatus === 'error' ? 'text-[#ffb4ab]' : props.persistenceStatus === 'saved' ? 'text-[#4edea3]' : 'text-[#bbcabf]'}>{props.isDocumentLoading ? es.canvas.loading : props.persistenceLabel}</span>
         {props.diagramId && props.presenceLabel && (
           <span role="status" aria-live="polite" title={(props.presenceMembers ?? []).map((m) => m.displayName).join(', ')} className="border-l border-[#3c4a42] pl-2 text-[#4cd7f6]">
