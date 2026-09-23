@@ -16,7 +16,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const baseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  const baseHeaders: Record<string, string> = init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
   const initHeaders = init?.headers as Record<string, string> | undefined;
   const headers: Record<string, string> = { ...baseHeaders, ...(initHeaders ?? {}) };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -122,6 +122,14 @@ export const realtimeApi = {
 
 /** The artifact endpoint generates the real Spring Boot/JPA backend on the
  * server (pinned generator-jhipster) and streams it as a zip. */
+export const imageImportApi = {
+  import: (projectId: string, diagramId: string, file: File): Promise<UMLDiagramDocument> => {
+    const form = new FormData();
+    form.append('image', file);
+    return request<UMLDiagramDocument>(`/projects/${projectId}/diagrams/${diagramId}/import-image`, { method: 'POST', body: form, headers: {} });
+  },
+};
+
 export interface VoiceTranscription { text: string; }
 export const voiceApi = {
   transcribe: (audio: Blob) => request<VoiceTranscription>('/voice/transcriptions', {

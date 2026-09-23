@@ -5,7 +5,8 @@ import { VoiceCommand } from './diagram/voiceCommands';
 import { validateRelationshipCreation } from './diagram/relationshipHelpers';
 import { downloadDiagramPng, downloadDiagramSvg } from './diagram/visualExport';
 import { downloadDiagramXmi } from './diagram/xmiExport';
-import { ApiError, artifactApi, authApi, diagramApi, projectApi, realtimeApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion, UMLDiagramDocument } from './api/diagramApi';
+import { BoundImageImportPreview, confirmImageImport, ImageImportBinding, isImportPreviewCurrent } from './diagram/imageImportFlow';
+import { ApiError, artifactApi, authApi, diagramApi, imageImportApi, projectApi, realtimeApi, AssignedProject, CreateProjectInput, DiagramSummary, DiagramVersion, UMLDiagramDocument } from './api/diagramApi';
 import { RealtimeClient, buildRealtimeWsUrl, PresenceMember } from './api/realtime';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -44,6 +45,7 @@ export default function App() {
   const [presenceMembers, setPresenceMembers] = useState<PresenceMember[]>([]);
   const [realtimeState, setRealtimeState] = useState<'idle' | 'connecting' | 'live' | 'unavailable'>('idle');
   const [remoteNotice, setRemoteNotice] = useState<string | null>(null);
+  const [imageImportPreview, setImageImportPreview] = useState<BoundImageImportPreview | null>(null);
   const classesRef = useRef(classes);
   const relationshipsRef = useRef(relationships);
   const diagramNameRef = useRef(diagramName);
@@ -234,6 +236,7 @@ export default function App() {
 
   const scheduleSave = useCallback((nextClasses?: UMLClassNode[], nextRelationships?: UMLRelationship[], nextName?: string) => {
     if (!activeProjectRef.current || !diagramIdRef.current) return;
+    setImageImportPreview(null);
     setRemoteNotice(null);
     const snapshot = {
       classes: nextClasses ?? classesRef.current,
@@ -260,6 +263,7 @@ export default function App() {
   // Open / switch / unmount: drop the timer, advance the sequence so any
   // in-flight PUT benignly no-ops, and let dirty state die with the diagram.
   const clearSaveState = useCallback(() => {
+    setImageImportPreview(null);
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = undefined;
@@ -984,15 +988,90 @@ export default function App() {
     }
   }, [diagramId, realtimeState, presenceMembers.length]);
 
-  if (screen === 'login') {
-    return <LoginScreen onContinue={async (email, password) => { const login = await authApi.login(email, password); authApi.setToken(login.accessToken); setUserName(login.displayName); setUserId(login.userId); setProjects(await projectApi.list()); setScreen('projects'); }} />;
-  }
+   const importDiagramImage = useCallback(async (file: File) => {
+     const project = activeProjectRef.current;
+     const id = diagramIdRef.current;
+     if (!project || !id) return;
+     const binding: ImageImportBinding = {
+       sourceProjectId: project.id,
+       sourceDiagramId: id,
+       sourceVersion: diagramVersionRef.current,
+       sourceReviewNumber: diagramReviewRef.current,
+     };
+     try {
+       const imported = await imageImportApi.import(project.id, id, file);
+       const isStillCurrent = isImportPreviewCurrent(binding, {
+         projectId: activeProjectRef.current?.id,
+         diagramId: diagramIdRef.current,
+         version: diagramVersionRef.current,
+         reviewNumber: diagramReviewRef.current,
+         isDirty: dirtyRef.current,
+       });
+       if (!isStillCurrent) return;
 
-  if (screen === 'projects') {
-    return <ProjectDashboard userName={userName} projects={projects} onSignOut={() => { authApi.setToken(); setScreen('login'); }} onOpenProject={(project) => { void openProject(project); }} onCreateProject={createProject} onJoinProject={joinProject} />;
-  }
+       setImageImportPreview({
+         ...binding,
+         document: imported,
+       });
+     } catch {
+       // Network or upload error
+     }
+   }, []);
 
-  return (
+   const handleConfirmImageImport = useCallback(() => {
+     if (!imageImportPreview || !diagramIdRef.current || !activeProjectRef.current) {
+       setImageImportPreview(null);
+       return;
+     }
+     const currentProjectId = activeProjectRef.current.id;
+     const currentDiagramId = diagramIdRef.current;
+     const currentVersion = diagramVersionRef.current;
+     const currentReviewNumber = diagramReviewRef.current;
+
+     const confirmed = confirmImageImport({
+       currentProjectId,
+       currentDiagramId,
+       currentVersion,
+       currentReviewNumber,
+       isDirty: dirtyRef.current,
+       preview: imageImportPreview,
+     });
+
+     if (!confirmed) {
+       setImageImportPreview(null);
+       return;
+     }
+
+     invalidateVoiceUndo();
+     classesRef.current = confirmed.classes;
+     relationshipsRef.current = confirmed.relationships;
+     diagramNameRef.current = confirmed.name;
+     diagramIdRef.current = confirmed.id;
+     diagramVersionRef.current = confirmed.version;
+     diagramReviewRef.current = confirmed.reviewNumber;
+
+     setClasses(confirmed.classes);
+     setRelationships(confirmed.relationships);
+     setDiagramName(confirmed.name);
+     setDiagramId(confirmed.id);
+     setDiagramVersion(confirmed.version);
+     setDiagramReview(confirmed.reviewNumber);
+     setSelectedClassId(confirmed.classes[0]?.id ?? '');
+     setSelectedRelationshipId('');
+     setImageImportPreview(null);
+
+     scheduleSave(confirmed.classes, confirmed.relationships, confirmed.name);
+   }, [imageImportPreview, scheduleSave]);
+
+   if (screen === 'login') {
+     return <LoginScreen onContinue={async (email, password) => { const login = await authApi.login(email, password); authApi.setToken(login.accessToken); setUserName(login.displayName); setUserId(login.userId); setProjects(await projectApi.list()); setScreen('projects'); }} />;
+   }
+
+   if (screen === 'projects') {
+     return <ProjectDashboard userName={userName} projects={projects} onSignOut={() => { authApi.setToken(); setScreen('login'); }} onOpenProject={(project) => { void openProject(project); }} onCreateProject={createProject} onJoinProject={joinProject} />;
+   }
+
+   return (
     <div className="min-h-screen bg-[#0f131c] text-[#dfe2ee] selection:bg-[#10b981] selection:text-[#00422b]">
       {/* Fixed Top Header */}
       <Header
@@ -1045,8 +1124,19 @@ export default function App() {
               onLoadVersions={() => { void loadVersions(); }}
               onRestoreVersion={(versionNumber) => { void restoreVersion(versionNumber); }}
               onCreateCheckpoint={() => setCheckpointOpen(true)}
+              onImportImage={importDiagramImage}
               onVoiceCommand={handleVoiceCommand}
             />
+            {imageImportPreview && (
+              <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+                <div className="w-[32rem] border border-[#4cd7f6] bg-[#1c2028] p-5 font-mono text-sm text-[#dfe2ee] shadow-2xl">
+                  <h2 className="text-lg text-[#4cd7f6]">Imported UML preview</h2>
+                  <p className="mt-2">{imageImportPreview.document.name}: {imageImportPreview.document.classes.length} classes, {imageImportPreview.document.relationships.length} relationships.</p>
+                  <p className="mt-2 text-xs text-[#bbcabf]">Review the detected diagram before replacing the current one.</p>
+                  <div className="mt-5 flex justify-end gap-3"><button type="button" className="border border-[#86948a] px-3 py-2" onClick={() => setImageImportPreview(null)}>Cancel</button><button type="button" className="border border-[#4de3a3] px-3 py-2 text-[#4de3a3]" onClick={handleConfirmImageImport}>Replace current diagram</button></div>
+                </div>
+              </div>
+            )}
             {remoteNotice && !conflictSnapshot && (
               <div role="status" className="fixed bottom-4 left-1/2 z-40 w-[36rem] -translate-x-1/2 border border-[#4cd7f6] bg-[#1c2028] p-3 font-mono text-xs text-[#dfe2ee] shadow-xl">
                 <p>{remoteNotice}</p>
